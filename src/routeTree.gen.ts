@@ -12,9 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedCampanasRouteImport } from './routes/_authenticated/campanas'
 import { Route as AuthenticatedContactosRouteImport } from './routes/_authenticated/contactos'
+import { Route as AuthenticatedExportarRouteImport } from './routes/_authenticated/exportar'
 import { Route as AuthenticatedPanelRouteImport } from './routes/_authenticated/panel'
+import { Route as AuthenticatedPlantillasRouteImport } from './routes/_authenticated/plantillas'
+import { Route as AuthenticatedPreguntasRouteImport } from './routes/_authenticated/preguntas'
 import { Route as AuthenticatedSolicitudesRouteImport } from './routes/_authenticated/solicitudes'
+import { Route as AuthenticatedUsuariosRouteImport } from './routes/_authenticated/usuarios'
 import { Route as AuthenticatedVendedoresRouteImport } from './routes/_authenticated/vendedores'
 import { Route as AuthenticatedSolicitudIdRouteImport } from './routes/_authenticated/solicitud.$id'
 
@@ -32,14 +37,34 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedCampanasRoute = AuthenticatedCampanasRouteImport.update({
+  id: '/campanas',
+  path: '/campanas',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedContactosRoute = AuthenticatedContactosRouteImport.update({
   id: '/contactos',
   path: '/contactos',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedExportarRoute = AuthenticatedExportarRouteImport.update({
+  id: '/exportar',
+  path: '/exportar',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPanelRoute = AuthenticatedPanelRouteImport.update({
   id: '/panel',
   path: '/panel',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPlantillasRoute = AuthenticatedPlantillasRouteImport.update({
+  id: '/plantillas',
+  path: '/plantillas',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPreguntasRoute = AuthenticatedPreguntasRouteImport.update({
+  id: '/preguntas',
+  path: '/preguntas',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedSolicitudesRoute =
@@ -48,6 +73,11 @@ const AuthenticatedSolicitudesRoute =
     path: '/solicitudes',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedUsuariosRoute = AuthenticatedUsuariosRouteImport.update({
+  id: '/usuarios',
+  path: '/usuarios',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedVendedoresRoute = AuthenticatedVendedoresRouteImport.update({
   id: '/vendedores',
   path: '/vendedores',
@@ -63,18 +93,28 @@ const AuthenticatedSolicitudIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/campanas': typeof AuthenticatedCampanasRoute
   '/contactos': typeof AuthenticatedContactosRoute
+  '/exportar': typeof AuthenticatedExportarRoute
   '/panel': typeof AuthenticatedPanelRoute
+  '/plantillas': typeof AuthenticatedPlantillasRoute
+  '/preguntas': typeof AuthenticatedPreguntasRoute
   '/solicitudes': typeof AuthenticatedSolicitudesRoute
+  '/usuarios': typeof AuthenticatedUsuariosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
   '/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/campanas': typeof AuthenticatedCampanasRoute
   '/contactos': typeof AuthenticatedContactosRoute
+  '/exportar': typeof AuthenticatedExportarRoute
   '/panel': typeof AuthenticatedPanelRoute
+  '/plantillas': typeof AuthenticatedPlantillasRoute
+  '/preguntas': typeof AuthenticatedPreguntasRoute
   '/solicitudes': typeof AuthenticatedSolicitudesRoute
+  '/usuarios': typeof AuthenticatedUsuariosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
   '/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
 }
@@ -83,9 +123,14 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_authenticated/campanas': typeof AuthenticatedCampanasRoute
   '/_authenticated/contactos': typeof AuthenticatedContactosRoute
+  '/_authenticated/exportar': typeof AuthenticatedExportarRoute
   '/_authenticated/panel': typeof AuthenticatedPanelRoute
+  '/_authenticated/plantillas': typeof AuthenticatedPlantillasRoute
+  '/_authenticated/preguntas': typeof AuthenticatedPreguntasRoute
   '/_authenticated/solicitudes': typeof AuthenticatedSolicitudesRoute
+  '/_authenticated/usuarios': typeof AuthenticatedUsuariosRoute
   '/_authenticated/vendedores': typeof AuthenticatedVendedoresRoute
   '/_authenticated/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
 }
@@ -94,18 +139,28 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/campanas'
     | '/contactos'
+    | '/exportar'
     | '/panel'
+    | '/plantillas'
+    | '/preguntas'
     | '/solicitudes'
+    | '/usuarios'
     | '/vendedores'
     | '/solicitud/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
+    | '/campanas'
     | '/contactos'
+    | '/exportar'
     | '/panel'
+    | '/plantillas'
+    | '/preguntas'
     | '/solicitudes'
+    | '/usuarios'
     | '/vendedores'
     | '/solicitud/$id'
   id:
@@ -113,9 +168,14 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/_authenticated/campanas'
     | '/_authenticated/contactos'
+    | '/_authenticated/exportar'
     | '/_authenticated/panel'
+    | '/_authenticated/plantillas'
+    | '/_authenticated/preguntas'
     | '/_authenticated/solicitudes'
+    | '/_authenticated/usuarios'
     | '/_authenticated/vendedores'
     | '/_authenticated/solicitud/$id'
   fileRoutesById: FileRoutesById
@@ -149,11 +209,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/campanas': {
+      id: '/_authenticated/campanas'
+      path: '/campanas'
+      fullPath: '/campanas'
+      preLoaderRoute: typeof AuthenticatedCampanasRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/contactos': {
       id: '/_authenticated/contactos'
       path: '/contactos'
       fullPath: '/contactos'
       preLoaderRoute: typeof AuthenticatedContactosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/exportar': {
+      id: '/_authenticated/exportar'
+      path: '/exportar'
+      fullPath: '/exportar'
+      preLoaderRoute: typeof AuthenticatedExportarRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/panel': {
@@ -163,11 +237,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPanelRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/plantillas': {
+      id: '/_authenticated/plantillas'
+      path: '/plantillas'
+      fullPath: '/plantillas'
+      preLoaderRoute: typeof AuthenticatedPlantillasRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/preguntas': {
+      id: '/_authenticated/preguntas'
+      path: '/preguntas'
+      fullPath: '/preguntas'
+      preLoaderRoute: typeof AuthenticatedPreguntasRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/solicitudes': {
       id: '/_authenticated/solicitudes'
       path: '/solicitudes'
       fullPath: '/solicitudes'
       preLoaderRoute: typeof AuthenticatedSolicitudesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/usuarios': {
+      id: '/_authenticated/usuarios'
+      path: '/usuarios'
+      fullPath: '/usuarios'
+      preLoaderRoute: typeof AuthenticatedUsuariosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/vendedores': {
@@ -188,17 +283,27 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedCampanasRoute: typeof AuthenticatedCampanasRoute
   AuthenticatedContactosRoute: typeof AuthenticatedContactosRoute
+  AuthenticatedExportarRoute: typeof AuthenticatedExportarRoute
   AuthenticatedPanelRoute: typeof AuthenticatedPanelRoute
+  AuthenticatedPlantillasRoute: typeof AuthenticatedPlantillasRoute
+  AuthenticatedPreguntasRoute: typeof AuthenticatedPreguntasRoute
   AuthenticatedSolicitudesRoute: typeof AuthenticatedSolicitudesRoute
+  AuthenticatedUsuariosRoute: typeof AuthenticatedUsuariosRoute
   AuthenticatedVendedoresRoute: typeof AuthenticatedVendedoresRoute
   AuthenticatedSolicitudIdRoute: typeof AuthenticatedSolicitudIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedCampanasRoute: AuthenticatedCampanasRoute,
   AuthenticatedContactosRoute: AuthenticatedContactosRoute,
+  AuthenticatedExportarRoute: AuthenticatedExportarRoute,
   AuthenticatedPanelRoute: AuthenticatedPanelRoute,
+  AuthenticatedPlantillasRoute: AuthenticatedPlantillasRoute,
+  AuthenticatedPreguntasRoute: AuthenticatedPreguntasRoute,
   AuthenticatedSolicitudesRoute: AuthenticatedSolicitudesRoute,
+  AuthenticatedUsuariosRoute: AuthenticatedUsuariosRoute,
   AuthenticatedVendedoresRoute: AuthenticatedVendedoresRoute,
   AuthenticatedSolicitudIdRoute: AuthenticatedSolicitudIdRoute,
 }
