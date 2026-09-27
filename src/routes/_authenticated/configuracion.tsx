@@ -336,7 +336,9 @@ function WhatsApp() {
   const q = useQuery({ queryKey: ["estado-integracion"], queryFn: () => estadoFn() });
   const [origen, setOrigen] = useState("");
   const [corriendo, setCorriendo] = useState(false);
-  useEffect(() => setOrigen(window.location.origin), []);
+  useEffect(() => {
+    setOrigen(window.location.origin);
+  }, []);
 
   const copiar = (t: string) => navigator.clipboard.writeText(t).then(() => toast.success("Copiado"));
 
@@ -464,7 +466,9 @@ function ProbarBot() {
   const [enviando, setEnviando] = useState(false);
   const fin = useRef<HTMLDivElement>(null);
 
-  useEffect(() => fin.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), [burbujas]);
+  useEffect(() => {
+    fin.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [burbujas]);
 
   function aBurbuja(s: SalidaSimulada): Burbuja {
     const sal = s.salida;
