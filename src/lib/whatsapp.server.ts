@@ -1,22 +1,16 @@
 // Envío de mensajes por la API oficial de WhatsApp (Meta Cloud API).
-const VERSION = "v21.0";
+import { normalizarOpciones, type Salida } from "@/lib/bot/salida";
 
-export type Salida =
-  | { tipo: "texto"; texto: string }
-  | { tipo: "imagen"; url: string; texto?: string }
-  | { tipo: "documento"; url: string; nombre?: string; texto?: string }
-  | { tipo: "ubicacion"; lat: number; lng: number; nombre?: string; direccion?: string }
-  | { tipo: "contacto"; nombre: string; telefono: string }
-  | { tipo: "lista"; texto: string; boton?: string; opciones: string[] }
-  | { tipo: "botones"; texto: string; opciones: string[] }
-  | { tipo: "plantilla"; nombre: string; idioma?: string; parametros?: string[] };
+export type { Salida };
+
+const VERSION = "v21.0";
 
 function recortar(t: string, n: number) {
   return t.length > n ? t.slice(0, n - 1) + "." : t;
 }
 
 export function cuerpoMeta(to: string, s: Salida): Record<string, unknown> {
-  const base = { messaging_product: "whatsapp", to };
+  const base = { messaging_product: "whatsapp", to: to.replace(/\D/g, "") };
   switch (s.tipo) {
     case "texto":
       return { ...base, type: "text", text: { body: s.texto } };
@@ -41,7 +35,11 @@ export function cuerpoMeta(to: string, s: Salida): Record<string, unknown> {
           body: { text: s.texto },
           action: {
             button: recortar(s.boton ?? "Ver opciones", 20),
-            sections: [{ title: "Opciones", rows: s.opciones.slice(0, 10).map((o, i) => ({ id: String(i + 1), title: recortar(o, 24) })) }],
+            sections: [{ title: "Opciones", rows: normalizarOpciones(s.opciones).slice(0, 10).map((o) => ({
+              id: o.id,
+              title: recortar(o.titulo, 24),
+              ...(o.descripcion ? { description: recortar(o.descripcion, 72) } : {}),
+            })) }],
           },
         },
       };
@@ -52,7 +50,11 @@ export function cuerpoMeta(to: string, s: Salida): Record<string, unknown> {
         interactive: {
           type: "button",
           body: { text: s.texto },
-          action: { buttons: s.opciones.slice(0, 3).map((o, i) => ({ type: "reply", reply: { id: String(i + 1), title: recortar(o, 20) } })) },
+          action: {
+            buttons: normalizarOpciones(s.opciones)
+              .slice(0, 3)
+              .map((o) => ({ type: "reply", reply: { id: o.id, title: recortar(o.titulo, 20) } })),
+          },
         },
       };
     case "plantilla":

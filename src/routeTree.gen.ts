@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedCampanasRouteImport } from './routes/_authenticated/campanas'
+import { Route as AuthenticatedConfiguracionRouteImport } from './routes/_authenticated/configuracion'
 import { Route as AuthenticatedContactosRouteImport } from './routes/_authenticated/contactos'
 import { Route as AuthenticatedExportarRouteImport } from './routes/_authenticated/exportar'
 import { Route as AuthenticatedPanelRouteImport } from './routes/_authenticated/panel'
@@ -22,6 +23,8 @@ import { Route as AuthenticatedSolicitudesRouteImport } from './routes/_authenti
 import { Route as AuthenticatedUsuariosRouteImport } from './routes/_authenticated/usuarios'
 import { Route as AuthenticatedVendedoresRouteImport } from './routes/_authenticated/vendedores'
 import { Route as AuthenticatedSolicitudIdRouteImport } from './routes/_authenticated/solicitud.$id'
+import { Route as ApiCronBotRouteImport } from './routes/api/cron/bot'
+import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -42,6 +45,12 @@ const AuthenticatedCampanasRoute = AuthenticatedCampanasRouteImport.update({
   path: '/campanas',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedConfiguracionRoute =
+  AuthenticatedConfiguracionRouteImport.update({
+    id: '/configuracion',
+    path: '/configuracion',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedContactosRoute = AuthenticatedContactosRouteImport.update({
   id: '/contactos',
   path: '/contactos',
@@ -89,11 +98,22 @@ const AuthenticatedSolicitudIdRoute =
     path: '/solicitud/$id',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ApiCronBotRoute = ApiCronBotRouteImport.update({
+  id: '/api/cron/bot',
+  path: '/api/cron/bot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiWhatsappWebhookRoute = ApiWhatsappWebhookRouteImport.update({
+  id: '/api/whatsapp/webhook',
+  path: '/api/whatsapp/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/campanas': typeof AuthenticatedCampanasRoute
+  '/configuracion': typeof AuthenticatedConfiguracionRoute
   '/contactos': typeof AuthenticatedContactosRoute
   '/exportar': typeof AuthenticatedExportarRoute
   '/panel': typeof AuthenticatedPanelRoute
@@ -103,11 +123,14 @@ export interface FileRoutesByFullPath {
   '/usuarios': typeof AuthenticatedUsuariosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
   '/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
+  '/api/cron/bot': typeof ApiCronBotRoute
+  '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/campanas': typeof AuthenticatedCampanasRoute
+  '/configuracion': typeof AuthenticatedConfiguracionRoute
   '/contactos': typeof AuthenticatedContactosRoute
   '/exportar': typeof AuthenticatedExportarRoute
   '/panel': typeof AuthenticatedPanelRoute
@@ -117,6 +140,8 @@ export interface FileRoutesByTo {
   '/usuarios': typeof AuthenticatedUsuariosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
   '/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
+  '/api/cron/bot': typeof ApiCronBotRoute
+  '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -124,6 +149,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/campanas': typeof AuthenticatedCampanasRoute
+  '/_authenticated/configuracion': typeof AuthenticatedConfiguracionRoute
   '/_authenticated/contactos': typeof AuthenticatedContactosRoute
   '/_authenticated/exportar': typeof AuthenticatedExportarRoute
   '/_authenticated/panel': typeof AuthenticatedPanelRoute
@@ -133,6 +159,8 @@ export interface FileRoutesById {
   '/_authenticated/usuarios': typeof AuthenticatedUsuariosRoute
   '/_authenticated/vendedores': typeof AuthenticatedVendedoresRoute
   '/_authenticated/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
+  '/api/cron/bot': typeof ApiCronBotRoute
+  '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -140,6 +168,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/campanas'
+    | '/configuracion'
     | '/contactos'
     | '/exportar'
     | '/panel'
@@ -149,11 +178,14 @@ export interface FileRouteTypes {
     | '/usuarios'
     | '/vendedores'
     | '/solicitud/$id'
+    | '/api/cron/bot'
+    | '/api/whatsapp/webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
     | '/campanas'
+    | '/configuracion'
     | '/contactos'
     | '/exportar'
     | '/panel'
@@ -163,12 +195,15 @@ export interface FileRouteTypes {
     | '/usuarios'
     | '/vendedores'
     | '/solicitud/$id'
+    | '/api/cron/bot'
+    | '/api/whatsapp/webhook'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/campanas'
+    | '/_authenticated/configuracion'
     | '/_authenticated/contactos'
     | '/_authenticated/exportar'
     | '/_authenticated/panel'
@@ -178,12 +213,16 @@ export interface FileRouteTypes {
     | '/_authenticated/usuarios'
     | '/_authenticated/vendedores'
     | '/_authenticated/solicitud/$id'
+    | '/api/cron/bot'
+    | '/api/whatsapp/webhook'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiCronBotRoute: typeof ApiCronBotRoute
+  ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -214,6 +253,13 @@ declare module '@tanstack/react-router' {
       path: '/campanas'
       fullPath: '/campanas'
       preLoaderRoute: typeof AuthenticatedCampanasRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/configuracion': {
+      id: '/_authenticated/configuracion'
+      path: '/configuracion'
+      fullPath: '/configuracion'
+      preLoaderRoute: typeof AuthenticatedConfiguracionRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/contactos': {
@@ -279,11 +325,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSolicitudIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/cron/bot': {
+      id: '/api/cron/bot'
+      path: '/api/cron/bot'
+      fullPath: '/api/cron/bot'
+      preLoaderRoute: typeof ApiCronBotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/whatsapp/webhook': {
+      id: '/api/whatsapp/webhook'
+      path: '/api/whatsapp/webhook'
+      fullPath: '/api/whatsapp/webhook'
+      preLoaderRoute: typeof ApiWhatsappWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedCampanasRoute: typeof AuthenticatedCampanasRoute
+  AuthenticatedConfiguracionRoute: typeof AuthenticatedConfiguracionRoute
   AuthenticatedContactosRoute: typeof AuthenticatedContactosRoute
   AuthenticatedExportarRoute: typeof AuthenticatedExportarRoute
   AuthenticatedPanelRoute: typeof AuthenticatedPanelRoute
@@ -297,6 +358,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCampanasRoute: AuthenticatedCampanasRoute,
+  AuthenticatedConfiguracionRoute: AuthenticatedConfiguracionRoute,
   AuthenticatedContactosRoute: AuthenticatedContactosRoute,
   AuthenticatedExportarRoute: AuthenticatedExportarRoute,
   AuthenticatedPanelRoute: AuthenticatedPanelRoute,
@@ -315,6 +377,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiCronBotRoute: ApiCronBotRoute,
+  ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

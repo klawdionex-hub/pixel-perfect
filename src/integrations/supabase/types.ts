@@ -262,6 +262,7 @@ export type Database = {
           texto_recordatorio_cliente_1: string | null
           texto_recordatorio_cliente_2: string | null
           texto_saludo: string | null
+          textos_extra: Json
           texto_traspaso_asesor: string | null
           ubicacion_maps_url: string | null
         }
@@ -300,6 +301,7 @@ export type Database = {
           texto_recordatorio_cliente_1?: string | null
           texto_recordatorio_cliente_2?: string | null
           texto_saludo?: string | null
+          textos_extra?: Json
           texto_traspaso_asesor?: string | null
           ubicacion_maps_url?: string | null
         }
@@ -338,6 +340,7 @@ export type Database = {
           texto_recordatorio_cliente_1?: string | null
           texto_recordatorio_cliente_2?: string | null
           texto_saludo?: string | null
+          textos_extra?: Json
           texto_traspaso_asesor?: string | null
           ubicacion_maps_url?: string | null
         }
