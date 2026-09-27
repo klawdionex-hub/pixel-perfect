@@ -36,6 +36,7 @@ export const crearUsuario = createServerFn({ method: "POST" })
         nombre: data.nombre,
         whatsapp: data.whatsapp || null,
         es_vendedor: data.es_vendedor,
+        activo: true,
       });
     if (e2) throw new Error(e2.message);
     return { ok: true };
