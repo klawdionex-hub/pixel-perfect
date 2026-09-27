@@ -250,6 +250,7 @@ export type Database = {
           nombre_negocio: string
           otras_redes: string | null
           telefono_negocio: string
+          texto_cierre: string | null
           texto_cliente_regresa: string | null
           texto_fuera_de_horario: string | null
           texto_fuera_de_zona: string | null
@@ -287,6 +288,7 @@ export type Database = {
           nombre_negocio?: string
           otras_redes?: string | null
           telefono_negocio?: string
+          texto_cierre?: string | null
           texto_cliente_regresa?: string | null
           texto_fuera_de_horario?: string | null
           texto_fuera_de_zona?: string | null
@@ -324,6 +326,7 @@ export type Database = {
           nombre_negocio?: string
           otras_redes?: string | null
           telefono_negocio?: string
+          texto_cierre?: string | null
           texto_cliente_regresa?: string | null
           texto_fuera_de_horario?: string | null
           texto_fuera_de_zona?: string | null
@@ -394,6 +397,7 @@ export type Database = {
       estado_conversacion: {
         Row: {
           contacto_id: string
+          datos: Json
           en_manos_de_vendedor: boolean
           flujo_actual: string | null
           intentos_fallidos: number
@@ -401,9 +405,11 @@ export type Database = {
           recordatorios_enviados: number
           solicitud_id: string | null
           ultima_actividad: string
+          ultimo_aviso_vendedor: string | null
         }
         Insert: {
           contacto_id: string
+          datos?: Json
           en_manos_de_vendedor?: boolean
           flujo_actual?: string | null
           intentos_fallidos?: number
@@ -411,9 +417,11 @@ export type Database = {
           recordatorios_enviados?: number
           solicitud_id?: string | null
           ultima_actividad?: string
+          ultimo_aviso_vendedor?: string | null
         }
         Update: {
           contacto_id?: string
+          datos?: Json
           en_manos_de_vendedor?: boolean
           flujo_actual?: string | null
           intentos_fallidos?: number
@@ -421,6 +429,7 @@ export type Database = {
           recordatorios_enviados?: number
           solicitud_id?: string | null
           ultima_actividad?: string
+          ultimo_aviso_vendedor?: string | null
         }
         Relationships: [
           {
@@ -639,7 +648,7 @@ export type Database = {
           notas: string | null
           numero: number
           resultado_en: string | null
-          servicio_codigo: number
+          servicio_codigo: number | null
           tomada_en: string | null
           urgente: boolean
           vendedor_id: string | null
@@ -662,7 +671,7 @@ export type Database = {
           notas?: string | null
           numero?: number
           resultado_en?: string | null
-          servicio_codigo: number
+          servicio_codigo?: number | null
           tomada_en?: string | null
           urgente?: boolean
           vendedor_id?: string | null
@@ -685,7 +694,7 @@ export type Database = {
           notas?: string | null
           numero?: number
           resultado_en?: string | null
-          servicio_codigo?: number
+          servicio_codigo?: number | null
           tomada_en?: string | null
           urgente?: boolean
           vendedor_id?: string | null
