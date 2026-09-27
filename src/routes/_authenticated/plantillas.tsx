@@ -26,14 +26,14 @@ function Pagina() {
   const [botones, setBotones] = useState("Me interesa, No gracias");
 
   async function guardar() {
-    if (!nombre || !texto) return toast.error("Capture nombre y texto.");
+    if (!nombre || !texto) { toast.error("Capture nombre y texto."); return; }
     const { error } = await supabase.from("plantillas").insert({
       nombre,
       nombre_meta: nombreMeta || null,
       texto,
       botones: botones.split(",").map((b) => b.trim()).filter(Boolean).slice(0, 3),
     });
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Plantilla guardada");
     setNombre(""); setNombreMeta(""); setTexto("");
     qc.invalidateQueries({ queryKey: claves.plantillas });
@@ -41,7 +41,7 @@ function Pagina() {
 
   async function borrar(id: string) {
     const { error } = await supabase.from("plantillas").delete().eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: claves.plantillas });
   }
 
