@@ -4,7 +4,7 @@ export function Tabla({ encabezados, children }: { encabezados: string[]; childr
   return (
     <div className="overflow-x-auto rounded-md border border-border bg-card">
       <table className="w-full text-sm">
-        <thead className="bg-carbon text-left text-xs uppercase tracking-wide text-primary-foreground">
+        <thead className="bg-carbon text-left text-xs uppercase tracking-wide text-white">
           <tr>
             {encabezados.map((e) => (
               <th key={e} className="px-3 py-2 font-semibold">
