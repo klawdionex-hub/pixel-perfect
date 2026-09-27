@@ -19,7 +19,13 @@ type MensajeMeta = {
   location?: { latitude: number; longitude: number; name?: string; address?: string };
 };
 
-type EstadoMeta = { id: string; status: string; timestamp: string; recipient_id: string };
+type EstadoMeta = {
+  id: string;
+  status: string;
+  timestamp: string;
+  recipient_id: string;
+  errors?: Array<{ code: number; title?: string; message?: string }>;
+};
 
 type CuerpoMeta = {
   entry?: Array<{
@@ -132,7 +138,9 @@ async function actualizarEstado(
   db: Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"],
   st: EstadoMeta,
 ) {
-  const estado = st.status === "failed" ? "fallido" : st.status === "delivered" ? "entregado" : st.status === "read" ? "leido" : "enviado";
+  const err = st.errors?.[0];
+  if (err) console.error("[webhook] Meta no entregó el mensaje", st.id, err);
+  const estado = st.status === "failed" ? `fallido${err ? `: ${err.code} ${err.title ?? err.message ?? ""}`.trimEnd() : ""}` : st.status === "delivered" ? "entregado" : st.status === "read" ? "leido" : "enviado";
   await db.from("mensajes").update({ estado }).eq("wa_message_id", st.id);
   const cuando = new Date(Number(st.timestamp) * 1000).toISOString();
   if (st.status === "delivered") {

@@ -17,7 +17,9 @@ import { cabeza } from "@/lib/cabeza";
 import { TEXTOS, valorEditable, type ClaveTexto, type ConfigBot } from "@/lib/bot/textos";
 import { normalizarOpciones, textoDeSalida } from "@/lib/bot/salida";
 import {
+  diagnosticoWhatsApp,
   ejecutarRecordatorios,
+  enviarPlantillaPrueba,
   estadoIntegracion,
   reiniciarSimulacion,
   simularMensaje,
@@ -386,6 +388,8 @@ function WhatsApp() {
         )}
       </div>
 
+      <Diagnostico />
+
       <div className="space-y-3 rounded-md border border-border bg-card p-5">
         <h2 className="text-base">Recordatorios automáticos</h2>
         <p className="text-sm text-muted-foreground">
@@ -413,6 +417,56 @@ function WhatsApp() {
           Ejecutar recordatorios ahora
         </Button>
       </div>
+    </div>
+  );
+}
+
+function Diagnostico() {
+  const diagnosticoFn = useServerFn(diagnosticoWhatsApp);
+  const pruebaFn = useServerFn(enviarPlantillaPrueba);
+  const [resultado, setResultado] = useState<unknown>(null);
+  const [telefono, setTelefono] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+
+  async function correr(fn: () => Promise<unknown>) {
+    setOcupado(true);
+    setResultado(null);
+    try {
+      setResultado(await fn());
+    } catch (e) {
+      setResultado({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-card p-5">
+      <h2 className="text-base">Diagnóstico de la conexión con Meta</h2>
+      <p className="text-sm text-muted-foreground">
+        Consulta a Meta con los secretos del servidor y muestra la respuesta exacta. Los secretos no se muestran.
+      </p>
+      <Button variant="outline" disabled={ocupado} onClick={() => correr(() => diagnosticoFn())}>
+        Revisar número y cuenta
+      </Button>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-56 flex-1">
+          <Label>Enviar plantilla de prueba "hello_world" a (10 dígitos, o con 52 / 521)</Label>
+          <Input value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="5512345678" />
+        </div>
+        <Button
+          disabled={ocupado || telefono.replace(/\D/g, "").length < 10}
+          onClick={() => correr(() => pruebaFn({ data: { telefono, plantilla: "hello_world", idioma: "en_US" } }))}
+        >
+          Enviar prueba
+        </Button>
+      </div>
+      {ocupado ? <p className="text-sm text-muted-foreground">Consultando a Meta…</p> : null}
+      {resultado ? (
+        <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
+          {typeof resultado === "string" ? resultado : JSON.stringify(resultado, null, 2)}
+        </pre>
+      ) : null}
     </div>
   );
 }

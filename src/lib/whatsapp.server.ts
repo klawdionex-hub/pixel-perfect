@@ -72,6 +72,23 @@ export function cuerpoMeta(to: string, s: Salida): Record<string, unknown> {
   }
 }
 
+/** Consulta de solo lectura a la Graph API (diagnóstico). Devuelve el JSON tal cual, con errores incluidos. */
+export async function consultarMeta(ruta: string): Promise<{ ok: boolean; status: number; datos: unknown }> {
+  const token = process.env["WHATSAPP_TOKEN"];
+  if (!token) return { ok: false, status: 0, datos: { error: "Falta WHATSAPP_TOKEN" } };
+  const r = await fetch(`https://graph.facebook.com/${VERSION}/${ruta}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const texto = await r.text();
+  let datos: unknown = texto;
+  try {
+    datos = JSON.parse(texto);
+  } catch {
+    // respuesta no JSON
+  }
+  return { ok: r.ok, status: r.status, datos };
+}
+
 export async function enviarWhatsApp(telefono: string, s: Salida): Promise<string | null> {
   const token = process.env["WHATSAPP_TOKEN"];
   const phoneId = process.env["WHATSAPP_PHONE_NUMBER_ID"];

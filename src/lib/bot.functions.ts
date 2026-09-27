@@ -55,6 +55,46 @@ export const ejecutarRecordatorios = createServerFn({ method: "POST" })
     return procesarRecordatorios(context.supabase, canalWhatsApp);
   });
 
+/** Revisa con Meta el token, el número y la cuenta de WhatsApp. No revela los secretos. */
+export const diagnosticoWhatsApp = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { consultarMeta } = await import("@/lib/whatsapp.server");
+    const phoneId = process.env["WHATSAPP_PHONE_NUMBER_ID"] ?? "";
+    const wabaId = process.env["WHATSAPP_WABA_ID"] ?? "";
+    const [numero, cuenta, plantillas] = await Promise.all([
+      consultarMeta(`${phoneId}?fields=display_phone_number,verified_name,code_verification_status,quality_rating,status,platform_type,account_mode`),
+      consultarMeta(`${wabaId}?fields=name,account_review_status,business_verification_status,currency`),
+      consultarMeta(`${wabaId}/message_templates?fields=name,language,status&limit=20`),
+    ]);
+    // Se devuelve como texto: la respuesta de Meta no tiene un tipo fijo.
+    return JSON.stringify({ numero, cuenta, plantillas }, null, 2);
+  });
+
+/** Envía la plantilla hello_world a un número para comprobar que los envíos funcionan. */
+export const enviarPlantillaPrueba = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z
+      .object({
+        telefono: z.string().min(10).max(20),
+        plantilla: z.string().max(80).default("hello_world"),
+        idioma: z.string().max(10).default("en_US"),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { enviarWhatsApp } = await import("@/lib/whatsapp.server");
+    let digitos = data.telefono.replace(/\D/g, "");
+    if (digitos.length === 10) digitos = "52" + digitos;
+    try {
+      const id = await enviarWhatsApp(digitos, { tipo: "plantilla", nombre: data.plantilla, idioma: data.idioma });
+      return { ok: true as const, enviadoA: digitos, id };
+    } catch (e) {
+      return { ok: false as const, enviadoA: digitos, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+
 /** Indica qué secretos de WhatsApp están configurados (sin revelar sus valores). */
 export const estadoIntegracion = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
