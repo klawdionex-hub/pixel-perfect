@@ -64,12 +64,39 @@ export function cuerpoMeta(to: string, s: Salida): Record<string, unknown> {
         template: {
           name: s.nombre,
           language: { code: s.idioma ?? "es_MX" },
-          components: s.parametros?.length
-            ? [{ type: "body", parameters: s.parametros.map((p) => ({ type: "text", text: p })) }]
-            : [],
+          components: [
+            ...(s.parametros?.length
+              ? [{ type: "body", parameters: s.parametros.map((p) => ({ type: "text", text: p })) }]
+              : []),
+            ...(s.botones ?? []).map((payload, i) => ({
+              type: "button",
+              sub_type: "quick_reply",
+              index: String(i),
+              parameters: [{ type: "payload", payload }],
+            })),
+          ],
         },
       };
   }
+}
+
+/** POST a la Graph API (p. ej. crear plantillas). Devuelve la respuesta tal cual. */
+export async function publicarMeta(ruta: string, cuerpo: unknown): Promise<{ ok: boolean; status: number; datos: unknown }> {
+  const token = process.env["WHATSAPP_TOKEN"];
+  if (!token) return { ok: false, status: 0, datos: { error: "Falta WHATSAPP_TOKEN" } };
+  const r = await fetch(`https://graph.facebook.com/${VERSION}/${ruta}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(cuerpo),
+  });
+  const texto = await r.text();
+  let datos: unknown = texto;
+  try {
+    datos = JSON.parse(texto);
+  } catch {
+    // respuesta no JSON
+  }
+  return { ok: r.ok, status: r.status, datos };
 }
 
 /** Consulta de solo lectura a la Graph API (diagnóstico). Devuelve el JSON tal cual, con errores incluidos. */

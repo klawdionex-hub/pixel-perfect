@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { normalizarOpciones, textoDeSalida, type Opcion, type Salida } from "./salida";
 import { enHorarioLaboral, texto, type ClaveTexto, type ConfigBot } from "./textos";
+import { avisarNuevoProspecto, reenviarMensajeCliente, tareasVendedores } from "./vendedores.server";
 
 type DB = SupabaseClient<Database>;
 
@@ -13,6 +14,8 @@ export interface Canal {
   cliente(telefono: string, s: Salida): Promise<string | null>;
   /** Envía a un vendedor (o al dueño). */
   vendedor(telefono: string, nombre: string, s: Salida): Promise<void>;
+  /** Simulador: trata la ventana de 24 h como abierta (no usa plantillas). */
+  siempreVentana?: boolean;
 }
 
 export type Entrada = {
@@ -28,7 +31,6 @@ export type Entrada = {
 
 type Contacto = Database["public"]["Tables"]["contactos"]["Row"];
 type Servicio = Database["public"]["Tables"]["servicios"]["Row"];
-type Vendedor = { id: string; nombre: string; whatsapp: string };
 
 type Flujo = "instalacion" | "reparacion" | "mantenimiento";
 
@@ -134,11 +136,6 @@ function textoLibre(e: Entrada, max = 500): string | null {
   return t.slice(0, max);
 }
 
-function numeroWhatsApp(tel: string) {
-  const d = tel.replace(/\D/g, "");
-  return d.length === 10 ? "52" + d : d;
-}
-
 const PALABRAS_ASESOR = ["asesor", "humano", "persona", "agente"];
 
 function pideAsesor(e: Entrada) {
@@ -239,81 +236,22 @@ async function guardarEstado(ses: Sesion) {
   if (error) throw new Error(`No se pudo guardar el estado: ${error.message}`);
 }
 
-async function vendedoresActivos(db: DB): Promise<Vendedor[]> {
-  const { data } = await db
-    .from("usuarios_perfil")
-    .select("id, nombre, whatsapp")
-    .eq("activo", true)
-    .eq("es_vendedor", true);
-  return (data ?? []).filter((v): v is Vendedor => !!v.whatsapp);
-}
+// ---------------------------------------------------------------- avisos a vendedores (ver vendedores.server.ts)
 
-/** Si el número pertenece a un usuario del panel, lo devuelve. */
-export async function buscarVendedorPorTelefono(db: DB, telefono: string) {
-  const ultimos = telefono.replace(/\D/g, "").slice(-10);
-  const { data } = await db.from("usuarios_perfil").select("id, nombre, whatsapp, activo");
-  return (data ?? []).find((u) => u.whatsapp && u.whatsapp.replace(/\D/g, "").slice(-10) === ultimos) ?? null;
-}
-
-function nombreServicio(ses: Sesion, codigo?: number | null, equipo?: number | null) {
-  const s = ses.servicios.find((x) => x.codigo === codigo);
-  if (!s) return "Sin especificar";
-  const e = equipo ? ses.servicios.find((x) => x.codigo === equipo) : null;
-  return e ? `${s.nombre} de ${e.nombre.toLowerCase()}` : s.nombre;
-}
-
-// ---------------------------------------------------------------- avisos a vendedores
-
-async function avisarVendedores(
-  ses: Sesion,
-  sol: { id: string; codigo: string | null; servicio_codigo: number | null; equipo_codigo: number | null; completa: boolean; urgente: boolean; fuera_de_horario: boolean; fuera_de_zona: boolean },
-  titulo = "Nuevo prospecto",
-) {
-  const marcas = [
-    sol.urgente && "Urgente",
-    sol.fuera_de_horario && "Fuera de horario",
-    sol.fuera_de_zona && "Fuera de zona",
-    !sol.completa && "Incompleta",
-  ].filter(Boolean);
-  const tel = ses.contacto.telefono;
-  const lineas = [
-    `${titulo} ${sol.codigo ?? ""}`.trim(),
-    `Nombre: ${ses.contacto.nombre ?? "Sin nombre"}`,
-    `Teléfono: ${tel}`,
-    `Servicio: ${nombreServicio(ses, sol.servicio_codigo, sol.equipo_codigo)}`,
-    `Ubicación: ${ses.contacto.municipio ?? "Sin especificar"}`,
-    ...(marcas.length ? [`Marcas: ${marcas.join(", ")}`] : []),
-    `Abrir chat: https://wa.me/${tel.replace(/\D/g, "")}`,
-  ];
-  const s: Salida = { tipo: "texto", texto: lineas.join("\n") };
-  for (const v of await vendedoresActivos(ses.db)) {
-    try {
-      await ses.canal.vendedor(numeroWhatsApp(v.whatsapp), v.nombre, s);
-    } catch (err) {
-      console.error(`[bot] No se pudo avisar a ${v.nombre}`, err);
-    }
+async function avisarVendedores(ses: Sesion, sol: { id: string }) {
+  try {
+    await avisarNuevoProspecto(ses.db, ses.canal, sol.id, ses.ahora);
+  } catch (err) {
+    console.error("[bot] No se pudo avisar a los vendedores", err);
   }
 }
 
 async function reenviarAVendedores(ses: Sesion, e: Entrada, codigo: string | null, vendedorId: string | null) {
   const contenido = e.texto?.trim() || (e.media ? `[${e.tipo ?? "archivo"}] ${e.media.url}` : `[${e.tipo ?? "mensaje"}]`);
-  const s: Salida = {
-    tipo: "texto",
-    texto: [
-      `Mensaje del cliente ${codigo ?? ""}`.trim(),
-      `${ses.contacto.nombre ?? "Sin nombre"} (${ses.contacto.telefono})`,
-      `"${contenido}"`,
-      `Abrir chat: https://wa.me/${ses.contacto.telefono.replace(/\D/g, "")}`,
-    ].join("\n"),
-  };
-  const todos = await vendedoresActivos(ses.db);
-  const destino = vendedorId ? todos.filter((v) => v.id === vendedorId) : todos;
-  for (const v of destino.length ? destino : todos) {
-    try {
-      await ses.canal.vendedor(numeroWhatsApp(v.whatsapp), v.nombre, s);
-    } catch (err) {
-      console.error(`[bot] No se pudo reenviar a ${v.nombre}`, err);
-    }
+  try {
+    await reenviarMensajeCliente(ses.db, ses.canal, { contacto: ses.contacto, codigo, vendedorId, contenido }, ses.ahora);
+  } catch (err) {
+    console.error("[bot] No se pudo reenviar el mensaje del cliente", err);
   }
 }
 
@@ -833,16 +771,6 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
   await irA(ses, res);
 }
 
-/** Mensaje de un usuario del panel (vendedor o dueño). Las funciones de vendedor llegan en la fase 3. */
-export async function procesarMensajeVendedor(db: DB, canal: Canal, vendedor: { nombre: string; whatsapp: string | null }) {
-  const { data: config } = await db.from("configuracion").select("*").eq("id", true).single();
-  await canal.vendedor(
-    numeroWhatsApp(vendedor.whatsapp ?? ""),
-    vendedor.nombre,
-    { tipo: "texto", texto: texto((config ?? {}) as ConfigBot, "respuesta_vendedor", { nombre: vendedor.nombre }) },
-  );
-}
-
 // ---------------------------------------------------------------- recordatorios (tarea programada)
 
 export async function procesarRecordatorios(db: DB, canal: Canal, ahora = new Date()) {
@@ -885,5 +813,10 @@ export async function procesarRecordatorios(db: DB, canal: Canal, ahora = new Da
       console.error(`[bot] Error en recordatorio de ${contacto.telefono}`, err);
     }
   }
-  return resumen;
+  try {
+    return { ...resumen, ...(await tareasVendedores(db, canal, ahora)) };
+  } catch (err) {
+    console.error("[bot] Error en tareas de vendedores", err);
+    return { ...resumen, recordatoriosSinTomar: 0, seguimientos: 0, archivadas: 0 };
+  }
 }

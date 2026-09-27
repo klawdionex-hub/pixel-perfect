@@ -29,9 +29,71 @@ export const simularMensaje = createServerFn({ method: "POST" })
         vendedor: async (_tel, nombre, salida) => {
           salidas.push({ para: "vendedor", nombre, salida });
         },
+        siempreVentana: true,
       },
     });
     return { salidas };
+  });
+
+/** Responde al bot como si fuera el vendedor que tiene la sesión abierta (botones "Lo tomo", resultados...). */
+export const simularVendedor = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({ texto: z.string().max(1000).optional(), opcionId: z.string().max(200).optional() }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    const { procesarMensajeVendedor } = await import("@/lib/bot/vendedores.server");
+    const { data: yo } = await context.supabase.from("usuarios_perfil").select("*").eq("id", context.userId).single();
+    if (!yo) throw new Error("Su usuario no tiene perfil.");
+    const salidas: SalidaSimulada[] = [];
+    await procesarMensajeVendedor(
+      context.supabase,
+      {
+        cliente: async () => null,
+        vendedor: async (_tel, nombre, salida) => {
+          salidas.push({ para: "vendedor", nombre, salida });
+        },
+        siempreVentana: true,
+      },
+      // En el simulador el vendedor siempre "tiene" WhatsApp para poder ver las respuestas.
+      { ...yo, whatsapp: yo.whatsapp ?? "0000000000" },
+      { texto: data.texto, opcionId: data.opcionId },
+    );
+    return { salidas };
+  });
+
+/** Estado en Meta de las plantillas de avisos a vendedores. */
+export const estadoPlantillasVendedores = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { consultarMeta } = await import("@/lib/whatsapp.server");
+    const { DEFINICIONES_PLANTILLAS } = await import("@/lib/bot/vendedores.server");
+    const r = await consultarMeta(
+      `${process.env["WHATSAPP_WABA_ID"] ?? ""}/message_templates?fields=name,status,language,rejected_reason&limit=200`,
+    );
+    const lista = ((r.datos as { data?: Array<{ name: string; status: string; language: string; rejected_reason?: string }> })?.data ?? []);
+    return {
+      error: r.ok ? null : JSON.stringify(r.datos),
+      plantillas: DEFINICIONES_PLANTILLAS.map((d) => {
+        const m = lista.find((x) => x.name === d.name && x.language === "es_MX");
+        return { nombre: d.name, estado: m?.status ?? "NO CREADA", motivo: m?.rejected_reason ?? null };
+      }),
+    };
+  });
+
+/** Registra en Meta las plantillas de avisos a vendedores que falten. */
+export const crearPlantillasVendedores = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { publicarMeta } = await import("@/lib/whatsapp.server");
+    const { DEFINICIONES_PLANTILLAS } = await import("@/lib/bot/vendedores.server");
+    const waba = process.env["WHATSAPP_WABA_ID"] ?? "";
+    const resultados: Array<{ nombre: string; ok: boolean; detalle: string }> = [];
+    for (const d of DEFINICIONES_PLANTILLAS) {
+      const r = await publicarMeta(`${waba}/message_templates`, { ...d, language: "es_MX", category: "UTILITY" });
+      resultados.push({ nombre: d.name, ok: r.ok, detalle: JSON.stringify(r.datos) });
+    }
+    return resultados;
   });
 
 /** Borra la conversación de prueba del usuario actual. */

@@ -12,7 +12,14 @@ export type Salida =
   | { tipo: "contacto"; nombre: string; telefono: string }
   | { tipo: "lista"; texto: string; boton?: Opc<string>; opciones: Array<string | Opcion> }
   | { tipo: "botones"; texto: string; opciones: Array<string | Opcion> }
-  | { tipo: "plantilla"; nombre: string; idioma?: Opc<string>; parametros?: Opc<string[]> };
+  | {
+      tipo: "plantilla";
+      nombre: string;
+      idioma?: Opc<string>;
+      parametros?: Opc<string[]>;
+      /** payload de cada botón de respuesta rápida, en orden. */
+      botones?: Opc<string[]>;
+    };
 
 export function normalizarOpciones(opciones: Array<string | Opcion>): Opcion[] {
   return opciones.map((o, i) => (typeof o === "string" ? { id: String(i + 1), titulo: o } : o));

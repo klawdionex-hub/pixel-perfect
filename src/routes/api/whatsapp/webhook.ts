@@ -65,9 +65,8 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { procesarMensajeCliente, procesarMensajeVendedor, buscarVendedorPorTelefono } = await import(
-          "@/lib/bot/motor.server"
-        );
+        const { procesarMensajeCliente } = await import("@/lib/bot/motor.server");
+        const { procesarMensajeVendedor, buscarVendedorPorTelefono } = await import("@/lib/bot/vendedores.server");
         const { canalWhatsApp, guardarMediaWhatsApp } = await import("@/lib/bot/canal.server");
         const { normalizarTelefono } = await import("@/lib/bot/salida");
 
@@ -84,7 +83,20 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
                 const telefono = normalizarTelefono(m.from);
                 const vendedor = await buscarVendedorPorTelefono(supabaseAdmin, telefono);
                 if (vendedor?.activo) {
-                  await procesarMensajeVendedor(supabaseAdmin, canalWhatsApp, vendedor);
+                  // Registro para evitar procesar dos veces el mismo mensaje si Meta reintenta.
+                  const { error: dup } = await supabaseAdmin.from("mensajes").insert({
+                    direccion: "entrante",
+                    autor: "vendedor",
+                    tipo: m.type,
+                    contenido: `${vendedor.nombre}: ${m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? m.button?.text ?? m.type}`,
+                    wa_message_id: m.id,
+                    estado: "recibido",
+                  });
+                  if (dup?.code === "23505") continue;
+                  await procesarMensajeVendedor(supabaseAdmin, canalWhatsApp, vendedor, {
+                    texto: m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? m.button?.text,
+                    opcionId: m.interactive?.list_reply?.id ?? m.interactive?.button_reply?.id ?? m.button?.payload,
+                  });
                   continue;
                 }
 

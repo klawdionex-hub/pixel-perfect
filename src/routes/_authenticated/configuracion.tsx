@@ -17,13 +17,16 @@ import { cabeza } from "@/lib/cabeza";
 import { TEXTOS, valorEditable, type ClaveTexto, type ConfigBot } from "@/lib/bot/textos";
 import { normalizarOpciones, textoDeSalida } from "@/lib/bot/salida";
 import {
+  crearPlantillasVendedores,
   diagnosticoWhatsApp,
   ejecutarRecordatorios,
   enviarPlantillaPrueba,
   estadoEnvio,
   estadoIntegracion,
+  estadoPlantillasVendedores,
   reiniciarSimulacion,
   simularMensaje,
+  simularVendedor,
   type SalidaSimulada,
 } from "@/lib/bot.functions";
 
@@ -228,10 +231,10 @@ const CAMPOS_TIEMPO: Array<{ col: string; etiqueta: string }> = [
   { col: "horas_recordatorio_cliente_1", etiqueta: "Primer recordatorio al cliente (horas sin responder)" },
   { col: "horas_recordatorio_cliente_2", etiqueta: "Segundo recordatorio al cliente (horas)" },
   { col: "horas_incompleto", etiqueta: "Marcar como incompleta y avisar a vendedores (horas)" },
-  { col: "horas_recordatorio_vendedor", etiqueta: "Recordatorio a vendedores sin tomar (horas) — fase 3" },
-  { col: "max_recordatorios_vendedor_dia", etiqueta: "Máximo de recordatorios a vendedores por día — fase 3" },
-  { col: "horas_seguimiento_resultado", etiqueta: "Primer seguimiento de resultado (horas) — fase 3" },
-  { col: "dias_seguimiento_repetido", etiqueta: "Repetir seguimiento cada (días) — fase 3" },
+  { col: "horas_recordatorio_vendedor", etiqueta: "Recordatorio a vendedores sin tomar (horas)" },
+  { col: "max_recordatorios_vendedor_dia", etiqueta: "Máximo de recordatorios a vendedores por día" },
+  { col: "horas_seguimiento_resultado", etiqueta: "Primer seguimiento de resultado (horas)" },
+  { col: "dias_seguimiento_repetido", etiqueta: "Repetir seguimiento cada (días)" },
 ];
 
 function Tiempos({ config }: { config: Config }) {
@@ -391,6 +394,8 @@ function WhatsApp() {
 
       <Diagnostico />
 
+      <PlantillasVendedores />
+
       <div className="space-y-3 rounded-md border border-border bg-card p-5">
         <h2 className="text-base">Recordatorios automáticos</h2>
         <p className="text-sm text-muted-foreground">
@@ -418,6 +423,90 @@ function WhatsApp() {
           Ejecutar recordatorios ahora
         </Button>
       </div>
+    </div>
+  );
+}
+
+function PlantillasVendedores() {
+  const estadoFn = useServerFn(estadoPlantillasVendedores);
+  const crearFn = useServerFn(crearPlantillasVendedores);
+  const [lista, setLista] = useState<Array<{ nombre: string; estado: string; motivo: string | null }> | null>(null);
+  const [detalle, setDetalle] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  async function revisar() {
+    setOcupado(true);
+    try {
+      const r = await estadoFn();
+      setLista(r.plantillas);
+      setDetalle(r.error);
+    } catch (e) {
+      setDetalle(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOcupado(false);
+    }
+  }
+
+  async function crear() {
+    setOcupado(true);
+    try {
+      const r = await crearFn();
+      const fallidas = r.filter((x) => !x.ok);
+      setDetalle(fallidas.length ? fallidas.map((f) => `${f.nombre}: ${f.detalle}`).join("\n\n") : null);
+      toast[fallidas.length ? "error" : "success"](
+        fallidas.length ? `${fallidas.length} plantilla(s) no se pudieron crear. Revise el detalle.` : "Plantillas enviadas a Meta para aprobación",
+      );
+    } catch (e) {
+      setDetalle(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOcupado(false);
+      revisar();
+    }
+  }
+
+  const ETIQUETA: Record<string, string> = {
+    APPROVED: "Aprobada",
+    PENDING: "En revisión",
+    REJECTED: "Rechazada",
+    PAUSED: "Pausada",
+    DISABLED: "Desactivada",
+    "NO CREADA": "No creada",
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-card p-5">
+      <h2 className="text-base">Plantillas para avisos a vendedores</h2>
+      <p className="text-sm text-muted-foreground">
+        WhatsApp solo permite escribirle a un vendedor sin plantilla si él escribió al bot en las últimas 24 horas.
+        Estas plantillas permiten avisarle siempre. Se crean una sola vez y Meta las aprueba en minutos u horas.
+        Mientras no estén aprobadas, los avisos solo llegan a los vendedores que escribieron al bot ese día.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={ocupado} onClick={revisar}>Ver estado</Button>
+        <Button disabled={ocupado} onClick={crear}>Crear las que falten en Meta</Button>
+      </div>
+      {lista ? (
+        <ul className="space-y-1 text-sm">
+          {lista.map((p) => (
+            <li key={p.nombre} className="flex items-center justify-between gap-4 border-b border-border py-1 last:border-0">
+              <span className="font-mono text-xs">{p.nombre}</span>
+              <span
+                className={
+                  p.estado === "APPROVED"
+                    ? "font-semibold text-etapa-cliente"
+                    : p.estado === "REJECTED" || p.estado === "NO CREADA"
+                      ? "font-semibold text-destructive"
+                      : "font-semibold text-etapa-negociando"
+                }
+              >
+                {ETIQUETA[p.estado] ?? p.estado}
+                {p.motivo && p.motivo !== "NONE" ? ` (${p.motivo})` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {detalle ? <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">{detalle}</pre> : null}
     </div>
   );
 }
@@ -542,7 +631,8 @@ function DatosEjemplo() {
 // ---------------------------------------------------------------- simulador
 
 type Burbuja = {
-  de: "cliente" | "bot" | "vendedor";
+  /** yoVendedor = lo que escribe el usuario del panel como vendedor. */
+  de: "cliente" | "bot" | "vendedor" | "yoVendedor";
   texto: string;
   nombre?: string | undefined;
   opciones?: { id: string; titulo: string }[] | undefined;
@@ -550,7 +640,9 @@ type Burbuja = {
 
 function ProbarBot() {
   const simular = useServerFn(simularMensaje);
+  const simularComoVendedor = useServerFn(simularVendedor);
   const reiniciar = useServerFn(reiniciarSimulacion);
+  const [como, setComo] = useState<"cliente" | "vendedor">("cliente");
   const [burbujas, setBurbujas] = useState<Burbuja[]>([]);
   const [texto, setTexto] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -575,6 +667,21 @@ function ProbarBot() {
     setTexto("");
     try {
       const r = await simular({ data: { texto: t, opcionId } });
+      setBurbujas((b) => [...b, ...r.salidas.map(aBurbuja)]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error en el simulador");
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function mandarVendedor(t: string, opcionId?: string) {
+    if (!t.trim() && !opcionId) return;
+    setEnviando(true);
+    setBurbujas((b) => [...b, { de: "yoVendedor", texto: t }]);
+    setTexto("");
+    try {
+      const r = await simularComoVendedor({ data: { texto: t, opcionId } });
       setBurbujas((b) => [...b, ...r.salidas.map(aBurbuja)]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error en el simulador");
@@ -608,12 +715,14 @@ function ProbarBot() {
             <p className="text-center text-sm text-muted-foreground">Escriba "Hola" para iniciar la conversación como si fuera un cliente.</p>
           ) : null}
           {burbujas.map((b, i) => (
-            <div key={i} className={b.de === "cliente" ? "flex justify-end" : "flex justify-start"}>
+            <div key={i} className={b.de === "cliente" || b.de === "yoVendedor" ? "flex justify-end" : "flex justify-start"}>
               <div
                 className={
                   b.de === "cliente"
                     ? "max-w-[75%] rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground"
-                    : b.de === "vendedor"
+                    : b.de === "yoVendedor"
+                      ? "max-w-[75%] rounded-lg bg-petroleo px-3 py-2 text-sm text-white"
+                      : b.de === "vendedor"
                       ? "max-w-[75%] rounded-lg border border-dashed border-petroleo bg-card px-3 py-2 text-sm"
                       : "max-w-[75%] rounded-lg bg-card px-3 py-2 text-sm shadow-sm"
                 }
@@ -627,8 +736,8 @@ function ProbarBot() {
                     {b.opciones.map((o) => (
                       <button
                         key={o.id}
-                        disabled={enviando || i !== ultimaDelBot(burbujas)}
-                        onClick={() => mandar(o.titulo, o.id)}
+                        disabled={enviando || (b.de === "bot" && i !== ultimaDelBot(burbujas))}
+                        onClick={() => (b.de === "vendedor" ? mandarVendedor(o.titulo, o.id) : mandar(o.titulo, o.id))}
                         className="rounded border border-border px-2 py-1 text-left text-petroleo hover:bg-muted disabled:opacity-50"
                       >
                         {o.titulo}
@@ -641,14 +750,25 @@ function ProbarBot() {
           ))}
           <div ref={fin} />
         </div>
+        <div className="flex gap-2 border-t border-border px-3 pt-3 text-xs">
+          <span className="self-center text-muted-foreground">Escribir como:</span>
+          <Button size="sm" variant={como === "cliente" ? "default" : "outline"} onClick={() => setComo("cliente")}>Cliente</Button>
+          <Button size="sm" variant={como === "vendedor" ? "default" : "outline"} onClick={() => setComo("vendedor")}>Vendedor (usted)</Button>
+        </div>
         <form
-          className="flex gap-2 border-t border-border p-3"
+          className="flex gap-2 p-3"
           onSubmit={(e) => {
             e.preventDefault();
-            mandar(texto);
+            if (como === "vendedor") mandarVendedor(texto);
+            else mandar(texto);
           }}
         >
-          <Input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Escriba como cliente…" disabled={enviando} />
+          <Input
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            placeholder={como === "vendedor" ? "Escriba como vendedor, por ejemplo: 0045 vendido 12500" : "Escriba como cliente…"}
+            disabled={enviando}
+          />
           <Button type="submit" disabled={enviando || !texto.trim()}>Enviar</Button>
         </form>
       </div>
@@ -659,6 +779,8 @@ function ProbarBot() {
           <li>Escriba "asesor" en cualquier momento para pasar con un vendedor.</li>
           <li>Los recuadros punteados muestran el aviso que recibiría cada vendedor con WhatsApp registrado en Usuarios.</li>
           <li>La solicitud creada aparece en Solicitudes, marcada como dato de ejemplo.</li>
+          <li>En los avisos a vendedores puede tocar "Lo tomo", "Ver más datos" o el resultado, como si fuera el vendedor.</li>
+          <li>Con "Escribir como: Vendedor" puede probar comandos como "0045 cotizado" o "0045 vendido 12500" (use el número del folio).</li>
           <li>"Empezar de nuevo" borra este cliente de prueba para repetir el flujo desde el saludo.</li>
         </ul>
       </div>

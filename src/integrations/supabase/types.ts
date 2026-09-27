@@ -639,6 +639,7 @@ export type Database = {
           comision: number | null
           completa: boolean
           contacto_id: string
+          control_bot: Json
           creada_en: string
           datos: Json
           equipo_codigo: number | null
@@ -662,6 +663,7 @@ export type Database = {
           comision?: number | null
           completa?: boolean
           contacto_id: string
+          control_bot?: Json
           creada_en?: string
           datos?: Json
           equipo_codigo?: number | null
@@ -685,6 +687,7 @@ export type Database = {
           comision?: number | null
           completa?: boolean
           contacto_id?: string
+          control_bot?: Json
           creada_en?: string
           datos?: Json
           equipo_codigo?: number | null
@@ -731,27 +734,33 @@ export type Database = {
           activo: boolean
           creado_en: string
           es_vendedor: boolean
+          estado_bot: Json
           id: string
           nombre: string
           recibe_resumen_semanal: boolean
+          ultimo_mensaje_wa: string | null
           whatsapp: string | null
         }
         Insert: {
           activo?: boolean
           creado_en?: string
           es_vendedor?: boolean
+          estado_bot?: Json
           id: string
           nombre?: string
           recibe_resumen_semanal?: boolean
+          ultimo_mensaje_wa?: string | null
           whatsapp?: string | null
         }
         Update: {
           activo?: boolean
           creado_en?: string
           es_vendedor?: boolean
+          estado_bot?: Json
           id?: string
           nombre?: string
           recibe_resumen_semanal?: boolean
+          ultimo_mensaje_wa?: string | null
           whatsapp?: string | null
         }
         Relationships: []
