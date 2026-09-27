@@ -20,6 +20,7 @@ import {
   diagnosticoWhatsApp,
   ejecutarRecordatorios,
   enviarPlantillaPrueba,
+  estadoEnvio,
   estadoIntegracion,
   reiniciarSimulacion,
   simularMensaje,
@@ -424,9 +425,31 @@ function WhatsApp() {
 function Diagnostico() {
   const diagnosticoFn = useServerFn(diagnosticoWhatsApp);
   const pruebaFn = useServerFn(enviarPlantillaPrueba);
+  const estadoFn = useServerFn(estadoEnvio);
   const [resultado, setResultado] = useState<unknown>(null);
   const [telefono, setTelefono] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [ultimoId, setUltimoId] = useState<string | null>(null);
+  const [entrega, setEntrega] = useState<string | null>(null);
+
+  async function enviarPrueba() {
+    setEntrega(null);
+    await correr(async () => {
+      const r = await pruebaFn({ data: { telefono, plantilla: "hello_world", idioma: "en_US" } });
+      setUltimoId(r.ok ? (r.id ?? null) : null);
+      return r;
+    });
+  }
+
+  async function revisarEntrega() {
+    if (!ultimoId) return;
+    try {
+      const r = await estadoFn({ data: { id: ultimoId } });
+      setEntrega(r.estado);
+    } catch (e) {
+      setEntrega(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   async function correr(fn: () => Promise<unknown>) {
     setOcupado(true);
@@ -456,11 +479,24 @@ function Diagnostico() {
         </div>
         <Button
           disabled={ocupado || telefono.replace(/\D/g, "").length < 10}
-          onClick={() => correr(() => pruebaFn({ data: { telefono, plantilla: "hello_world", idioma: "en_US" } }))}
+          onClick={enviarPrueba}
         >
           Enviar prueba
         </Button>
       </div>
+      {ultimoId ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-border p-3 text-sm">
+          <Button variant="outline" size="sm" onClick={revisarEntrega}>
+            Ver si Meta lo entregó
+          </Button>
+          <span>
+            Estado:{" "}
+            <span className="font-semibold">
+              {entrega ?? "presione el botón unos segundos después de enviar"}
+            </span>
+          </span>
+        </div>
+      ) : null}
       {ocupado ? <p className="text-sm text-muted-foreground">Consultando a Meta…</p> : null}
       {resultado ? (
         <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">

@@ -83,16 +83,39 @@ export const enviarPlantillaPrueba = createServerFn({ method: "POST" })
       })
       .parse(d),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
     const { enviarWhatsApp } = await import("@/lib/whatsapp.server");
     let digitos = data.telefono.replace(/\D/g, "");
     if (digitos.length === 10) digitos = "52" + digitos;
     try {
       const id = await enviarWhatsApp(digitos, { tipo: "plantilla", nombre: data.plantilla, idioma: data.idioma });
+      // Se registra para que el webhook anote si Meta lo entregó o por qué falló.
+      await context.supabase.from("mensajes").insert({
+        direccion: "saliente",
+        autor: "sistema",
+        tipo: "plantilla",
+        contenido: `Prueba ${data.plantilla} a ${digitos}`,
+        wa_message_id: id,
+        estado: "enviado",
+        es_ejemplo: true,
+      });
       return { ok: true as const, enviadoA: digitos, id };
     } catch (e) {
       return { ok: false as const, enviadoA: digitos, error: e instanceof Error ? e.message : String(e) };
     }
+  });
+
+/** Estado de entrega que Meta reportó por el webhook para un mensaje enviado. */
+export const estadoEnvio = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ id: z.string().min(5).max(200) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: fila } = await context.supabase
+      .from("mensajes")
+      .select("estado, creado_en")
+      .eq("wa_message_id", data.id)
+      .maybeSingle();
+    return { estado: fila?.estado ?? "sin registro", enviado: fila?.creado_en ?? null };
   });
 
 /** Indica qué secretos de WhatsApp están configurados (sin revelar sus valores). */
