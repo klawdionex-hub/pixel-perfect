@@ -42,7 +42,7 @@ function Pagina() {
 
   async function actualizar(id: string, cambios: Partial<UsuarioPerfil>) {
     const { error } = await supabase.from("usuarios_perfil").update(cambios).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: claves.usuarios });
   }
 

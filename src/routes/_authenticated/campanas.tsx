@@ -30,11 +30,11 @@ function Pagina() {
   const [max, setMax] = useState(50);
 
   async function crear() {
-    if (!nombre) return toast.error("Capture el nombre.");
+    if (!nombre) { toast.error("Capture el nombre."); return; }
     const { error } = await supabase.from("campanas").insert({
       nombre, plantilla_id: plantilla || null, fecha_inicio: inicio || null, dias_reparto: dias, max_por_dia: max,
     });
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Campaña creada");
     setNombre("");
     qc.invalidateQueries({ queryKey: claves.campanas });
@@ -42,7 +42,7 @@ function Pagina() {
 
   async function cambiarEstado(id: string, estado: string) {
     const { error } = await supabase.from("campanas").update({ estado }).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: claves.campanas });
   }
 
