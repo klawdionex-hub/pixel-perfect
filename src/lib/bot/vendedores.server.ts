@@ -37,6 +37,7 @@ export const PLANTILLAS_VENDEDORES = {
   seguimiento: "afpam_seguimiento_prospecto",
   mensajeCliente: "afpam_mensaje_de_cliente",
   mensajeSinAsignar: "afpam_mensaje_sin_asignar",
+  asignado: "afpam_prospecto_asignado",
 } as const;
 
 /** Definiciones para registrarlas en Meta (idioma es_MX, categoría UTILITY). */
@@ -96,6 +97,16 @@ export const DEFINICIONES_PLANTILLAS = [
         example: { body_text: [["3-1-0045", "Elevadizo con paneles", "Texcoco", "Buen día, ¿siguen disponibles?"]] },
       },
       { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Lo tomo" }, { type: "QUICK_REPLY", text: "Ver detalles" }] },
+    ],
+  },
+  {
+    name: PLANTILLAS_VENDEDORES.asignado,
+    components: [
+      {
+        type: "BODY",
+        text: "El prospecto {{1}} ({{2}}, {{3}}) ya fue asignado a {{4}}. Ya no está disponible para tomarlo.",
+        example: { body_text: [["3-1-0045", "Elevadizo con paneles", "Texcoco", "Carlos"]] },
+      },
     ],
   },
 ];
@@ -408,13 +419,34 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
   }
   for (const salida of await datosCompletos(db, s)) await responder(canal, v, salida);
 
-  // Avisa a los demás (solo si su ventana está abierta; no es un aviso crítico).
+  // Avisa a los demás que ya no está disponible.
+  const servicio = await nombreServicio(db, s);
+  const zona = zonaDe(s);
   for (const otro of await vendedoresActivos(db)) {
     if (otro.id === v.id) continue;
-    if (canal.siempreVentana || ventanaAbierta(otro, ahora)) {
-      await enviarAVendedor(canal, otro, ahora, { tipo: "texto", texto: `El prospecto ${s.codigo} fue tomado por ${v.nombre}.` });
-    }
+    await enviarAVendedor(
+      canal,
+      otro,
+      ahora,
+      { tipo: "texto", texto: `El prospecto ${s.codigo} (${servicio}, ${zona}) ya fue asignado a ${v.nombre}. Ya no está disponible para tomarlo.` },
+      { nombre: PLANTILLAS_VENDEDORES.asignado, parametros: [s.codigo ?? "", servicio, zona, v.nombre] },
+    );
   }
+}
+
+/**
+ * Si el prospecto está asignado a otro vendedor, se lo dice y devuelve true.
+ * Solo el vendedor asignado registra resultados; el administrador puede hacerlo desde el panel.
+ */
+async function asignadoAOtro(db: DB, canal: Canal, v: Vendedor, solicitudId: string): Promise<boolean> {
+  const { data: s } = await db.from("solicitudes").select("codigo, vendedor_id").eq("id", solicitudId).maybeSingle();
+  if (!s?.vendedor_id || s.vendedor_id === v.id) return false;
+  const { data: otro } = await db.from("usuarios_perfil").select("nombre").eq("id", s.vendedor_id).maybeSingle();
+  await responder(canal, v, {
+    tipo: "texto",
+    texto: `El prospecto ${s.codigo} está asignado a ${otro?.nombre ?? "otro vendedor"}. Solo esa persona puede registrar su resultado.`,
+  });
+  return true;
 }
 
 async function registrarResultado(db: DB, canal: Canal, v: Vendedor, clave: string, solicitudId: string, ahora: Date) {
@@ -482,12 +514,13 @@ async function cerrarVenta(db: DB, canal: Canal, v: Vendedor, solicitudId: strin
   });
 }
 
-async function cerrarPerdido(db: DB, canal: Canal, v: Vendedor, solicitudId: string, motivo: string | null) {
-  const { data: previa } = await db.from("solicitudes").select("notas").eq("id", solicitudId).maybeSingle();
+async function cerrarPerdido(db: DB, canal: Canal, v: Vendedor, solicitudId: string, motivo: string | null, ahora: Date) {
+  const { data: previa } = await db.from("solicitudes").select("notas, vendedor_id").eq("id", solicitudId).maybeSingle();
   const notas = motivo ? [previa?.notas, `Motivo de pérdida: ${motivo}`].filter(Boolean).join("\n") : previa?.notas ?? null;
+  const asignar = previa?.vendedor_id ? {} : { vendedor_id: v.id, tomada_en: ahora.toISOString() };
   const { data: s } = await db
     .from("solicitudes")
-    .update({ etapa: 0, notas })
+    .update({ etapa: 0, notas, ...asignar })
     .eq("id", solicitudId)
     .select("codigo")
     .single();
@@ -554,12 +587,19 @@ export async function procesarMensajeVendedor(
     return;
   }
   if (accion === "seg" && a) {
+    if (await asignadoAOtro(db, canal, v, a)) return;
     const s = await cargarSolicitud(db, a);
     if (s) await responder(canal, v, preguntaSeguimiento(s));
     return;
   }
-  if (accion === "res" && a && b) return registrarResultado(db, canal, v, a, b, ahora);
-  if (accion === "omitir" && a) return cerrarPerdido(db, canal, v, a, null);
+  if (accion === "res" && a && b) {
+    if (await asignadoAOtro(db, canal, v, b)) return;
+    return registrarResultado(db, canal, v, a, b, ahora);
+  }
+  if (accion === "omitir" && a) {
+    if (await asignadoAOtro(db, canal, v, a)) return;
+    return cerrarPerdido(db, canal, v, a, null, ahora);
+  }
 
   // Botones de plantilla sin payload: llegan solo con el texto del botón.
   const texto = (entrada.texto ?? "").trim();
@@ -571,6 +611,10 @@ export async function procesarMensajeVendedor(
       await guardarEstadoVendedor(db, v, {});
       return responder(canal, v, { tipo: "texto", texto: "Cancelado. No se registró ningún cambio." });
     }
+    if (await asignadoAOtro(db, canal, v, estado.solicitud_id!)) {
+      await guardarEstadoVendedor(db, v, {});
+      return;
+    }
     if (estado.esperando === "monto") {
       const monto = leerMonto(texto);
       if (monto === null) {
@@ -579,7 +623,7 @@ export async function procesarMensajeVendedor(
       return cerrarVenta(db, canal, v, estado.solicitud_id!, monto, ahora);
     }
     if (estado.esperando === "motivo") {
-      return cerrarPerdido(db, canal, v, estado.solicitud_id!, /^omitir$/i.test(texto) ? null : texto.slice(0, 300));
+      return cerrarPerdido(db, canal, v, estado.solicitud_id!, /^omitir$/i.test(texto) ? null : texto.slice(0, 300), ahora);
     }
   }
 
@@ -588,12 +632,13 @@ export async function procesarMensajeVendedor(
   if (cmd) {
     const { data: s } = await db.from("solicitudes").select("id").eq("numero", Number(cmd[1])).maybeSingle();
     if (!s) return responder(canal, v, { tipo: "texto", texto: `No encontré el prospecto número ${cmd[1]}.` });
+    if (await asignadoAOtro(db, canal, v, s.id)) return;
     const palabra = (cmd[2] ?? "").toLowerCase();
     const resto = (cmd[3] ?? "").trim();
     if (palabra.startsWith("cotizad")) return registrarResultado(db, canal, v, "2", s.id, ahora);
     if (palabra.startsWith("negoci")) return registrarResultado(db, canal, v, "3", s.id, ahora);
     if (palabra.startsWith("perdid")) {
-      if (resto) return cerrarPerdido(db, canal, v, s.id, resto.slice(0, 300));
+      if (resto) return cerrarPerdido(db, canal, v, s.id, resto.slice(0, 300), ahora);
       return registrarResultado(db, canal, v, "0", s.id, ahora);
     }
     const monto = leerMonto(resto);
