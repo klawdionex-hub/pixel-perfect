@@ -49,7 +49,7 @@ function PaginaAuth() {
     <div className="flex min-h-screen items-center justify-center bg-carbon px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex justify-center">
-          <LogoAfpam className="h-16" variante="oscuro" />
+          <LogoAfpam variante="oscuro" grande />
         </div>
         <form onSubmit={iniciarSesion} className="panel space-y-5 p-6">
           <div>

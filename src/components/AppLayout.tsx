@@ -1,6 +1,7 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, type ReactNode } from "react";
+import { toast } from "sonner";
 import {
   LayoutDashboard,
   ClipboardList,
@@ -16,6 +17,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { LogoAfpam } from "@/components/LogoAfpam";
+import { haceTiempo } from "@/lib/afpam";
+import { claves, traerSolicitudes } from "@/lib/datos";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -31,10 +34,69 @@ const NAV = [
   { to: "/exportar", texto: "Exportar", icono: Download },
 ] as const;
 
+/** Sonido corto de aviso (dos tonos), sin archivos de audio. */
+function sonarAviso() {
+  try {
+    const ctx = new AudioContext();
+    [880, 1320].forEach((frecuencia, i) => {
+      const osc = ctx.createOscillator();
+      const vol = ctx.createGain();
+      osc.frequency.value = frecuencia;
+      vol.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.18);
+      vol.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.16);
+      osc.connect(vol).connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.18);
+      osc.stop(ctx.currentTime + i * 0.18 + 0.17);
+    });
+  } catch {
+    // El navegador bloquea el sonido hasta que el usuario interactúa con la página.
+  }
+}
+
+/**
+ * Revisa cada 30 segundos si llegaron prospectos nuevos: muestra un aviso con sonido
+ * y devuelve cuántos siguen sin tomar (para el contador del menú).
+ */
+function useAvisoProspectosNuevos() {
+  const navigate = useNavigate();
+  // Sigue revisando aunque la pestaña esté en segundo plano: justo ahí es cuando sirve el aviso.
+  const q = useQuery({
+    queryKey: claves.solicitudes,
+    queryFn: traerSolicitudes,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
+  });
+  const conocidas = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    if (!q.data) return;
+    const ids = new Set(q.data.map((s) => s.id));
+    if (conocidas.current) {
+      const nuevas = q.data.filter(
+        (s) => !conocidas.current!.has(s.id) && !(s.contactos?.telefono ?? "").startsWith("sim-"),
+      );
+      if (nuevas.length) {
+        sonarAviso();
+        for (const s of nuevas.slice(0, 3)) {
+          toast(`Nuevo prospecto ${s.codigo ?? ""}`, {
+            description: `${s.contactos?.municipio ?? "Sin municipio"} · ${s.urgente ? "Urgente · " : ""}${haceTiempo(s.creada_en)}`,
+            action: { label: "Ver", onClick: () => navigate({ to: "/solicitud/$id", params: { id: s.id } }) },
+            duration: 15000,
+          });
+        }
+      }
+    }
+    conocidas.current = ids;
+  }, [q.data, navigate]);
+
+  return (q.data ?? []).filter((s) => s.etapa === 1 && !s.vendedor_id).length;
+}
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const sinTomar = useAvisoProspectosNuevos();
 
   async function cerrarSesion() {
     await queryClient.cancelQueries();
@@ -67,6 +129,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   >
                     <Icono className="h-4 w-4 shrink-0" />
                     <span className="truncate">{item.texto}</span>
+                    {item.to === "/solicitudes" && sinTomar > 0 ? (
+                      <span
+                        className={cn(
+                          "ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold",
+                          activo ? "bg-carbon text-primary" : "bg-primary text-primary-foreground",
+                        )}
+                        title="Prospectos sin tomar"
+                      >
+                        {sinTomar}
+                      </span>
+                    ) : null}
                   </Link>
                 </li>
               );

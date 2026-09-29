@@ -55,6 +55,25 @@ export function antiguedad(valor: string | null | undefined) {
   return `${Math.floor(horas / 24)} días`;
 }
 
+/** "hace 5 min", "hace 3 horas", "ayer", "hace 4 días". */
+export function haceTiempo(valor: string | null | undefined) {
+  if (!valor) return "—";
+  const min = Math.floor((Date.now() - new Date(valor).getTime()) / 60000);
+  if (min < 1) return "hace un momento";
+  if (min < 60) return `hace ${min} min`;
+  const horas = Math.floor(min / 60);
+  if (horas < 24) return horas === 1 ? "hace 1 hora" : `hace ${horas} horas`;
+  const dias = Math.floor(horas / 24);
+  if (dias === 1) return "ayer";
+  if (dias < 30) return `hace ${dias} días`;
+  return fecha(valor);
+}
+
+/** Horas transcurridas desde una fecha. */
+export function horasDesde(valor: string | null | undefined) {
+  return valor ? (Date.now() - new Date(valor).getTime()) / 3600000 : 0;
+}
+
 export function telefonoBonito(tel: string | null | undefined) {
   if (!tel) return "—";
   const d = tel.replace(/\D/g, "");
