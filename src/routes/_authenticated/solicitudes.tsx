@@ -37,6 +37,48 @@ export const Route = createFileRoute("/_authenticated/solicitudes")({
 
 const COLUMNAS = [1, 2, 3, 4, 0];
 
+const PERIODOS: Record<string, string> = {
+  hoy: "Hoy",
+  ayer: "Ayer",
+  semana: "Esta semana",
+  "7": "Últimos 7 días",
+  mes: "Este mes",
+  "mes-pasado": "Mes pasado",
+  "30": "Últimos 30 días",
+  personalizado: "Elegir fechas",
+};
+
+/** Rango [desde, hasta) en hora local para un periodo. */
+function rangoDe(periodo: string, desde: string, hasta: string): [Date, Date] | null {
+  const hoy = new Date();
+  const dia = (d: number) => new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + d);
+  switch (periodo) {
+    case "hoy":
+      return [dia(0), dia(1)];
+    case "ayer":
+      return [dia(-1), dia(0)];
+    case "semana":
+      return [dia(-((hoy.getDay() + 6) % 7)), dia(1)];
+    case "7":
+      return [dia(-6), dia(1)];
+    case "30":
+      return [dia(-29), dia(1)];
+    case "mes":
+      return [new Date(hoy.getFullYear(), hoy.getMonth(), 1), dia(1)];
+    case "mes-pasado":
+      return [new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1), new Date(hoy.getFullYear(), hoy.getMonth(), 1)];
+    case "personalizado": {
+      if (!desde && !hasta) return null;
+      const ini = desde ? new Date(`${desde}T00:00:00`) : new Date(2000, 0, 1);
+      const fin = hasta ? new Date(`${hasta}T00:00:00`) : dia(1);
+      if (hasta) fin.setDate(fin.getDate() + 1);
+      return [ini, fin];
+    }
+    default:
+      return null;
+  }
+}
+
 function PaginaSolicitudes() {
   const busquedaUrl = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -50,6 +92,10 @@ function PaginaSolicitudes() {
   const [servicio, setServicio] = useState("");
   const [texto, setTexto] = useState("");
   const [archivados, setArchivados] = useState(false);
+  const [periodo, setPeriodo] = useState("");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const rango = rangoDe(periodo, desde, hasta);
   const [venta, setVenta] = useState<Solicitud | null>(null);
   const [perdido, setPerdido] = useState<Solicitud | null>(null);
   const mover = useMoverEtapa(setVenta, setPerdido);
@@ -63,6 +109,10 @@ function PaginaSolicitudes() {
 
   const filtradas = (solicitudes.data ?? []).filter((s) => {
     if (servicio && s.servicio_codigo !== Number(servicio)) return false;
+    if (rango) {
+      const creada = new Date(s.creada_en);
+      if (creada < rango[0] || creada >= rango[1]) return false;
+    }
     if (vendedor === "sin" && s.vendedor_id) return false;
     if (vendedor && vendedor !== "sin" && s.vendedor_id !== vendedor) return false;
     if (filtro === "incompletas" && (s.completa || ![1, 2, 3].includes(s.etapa))) return false;
@@ -137,6 +187,26 @@ function PaginaSolicitudes() {
               </option>
             ))}
           </select>
+          <select
+            value={periodo}
+            onChange={(e) => setPeriodo(e.target.value)}
+            className="h-9 rounded-md border border-input bg-card px-3 text-sm"
+            aria-label="Fecha de la solicitud"
+          >
+            <option value="">Cualquier fecha</option>
+            {Object.entries(PERIODOS).map(([valor, texto]) => (
+              <option key={valor} value={valor}>
+                {texto}
+              </option>
+            ))}
+          </select>
+          {periodo === "personalizado" ? (
+            <div className="flex items-center gap-2 text-sm">
+              <Input type="date" className="w-40" value={desde} onChange={(e) => setDesde(e.target.value)} aria-label="Desde" />
+              <span className="text-muted-foreground">a</span>
+              <Input type="date" className="w-40" value={hasta} onChange={(e) => setHasta(e.target.value)} aria-label="Hasta" />
+            </div>
+          ) : null}
           {vista === "tablero" ? (
             <Button variant={archivados ? "default" : "outline"} size="sm" onClick={() => setArchivados(!archivados)}>
               <Archive className="mr-1.5 h-4 w-4" />
@@ -145,8 +215,22 @@ function PaginaSolicitudes() {
           ) : null}
         </div>
 
-        {filtro || vendedor === "sin" ? (
+        {filtro || vendedor === "sin" || rango ? (
           <div className="flex flex-wrap gap-2">
+            {rango ? (
+              <Chip
+                texto={
+                  periodo === "personalizado"
+                    ? `Del ${desde || "inicio"} al ${hasta || "hoy"}`
+                    : `Llegaron: ${(PERIODOS[periodo] ?? "").toLowerCase()}`
+                }
+                onQuitar={() => {
+                  setPeriodo("");
+                  setDesde("");
+                  setHasta("");
+                }}
+              />
+            ) : null}
             {filtro ? <Chip texto={FILTROS[filtro] ?? filtro} onQuitar={() => cambiar({ filtro: undefined })} /> : null}
             {vendedor === "sin" ? <Chip texto="Sin tomar" onQuitar={() => cambiar({ vendedor: undefined })} /> : null}
           </div>
