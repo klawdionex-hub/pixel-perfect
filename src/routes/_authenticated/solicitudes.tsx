@@ -1,9 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Archive, Columns3, Inbox, Search, Table2, X } from "lucide-react";
+import { AlertTriangle, Archive, Columns3, Inbox, Search, Table2, UserPlus, X } from "lucide-react";
 import { EncabezadoPagina } from "@/components/AppLayout";
-import { DialogoPerdido, DialogoVenta, useMoverEtapa } from "@/components/AccionesSolicitud";
+import { DialogoAsignar, DialogoPerdido, DialogoVenta, useMoverEtapa } from "@/components/AccionesSolicitud";
 import { EtapaBadge, Marca } from "@/components/EtapaBadge";
 import { Folio } from "@/components/Folio";
 import { Vacio } from "@/components/Vacio";
@@ -98,7 +98,8 @@ function PaginaSolicitudes() {
   const rango = rangoDe(periodo, desde, hasta);
   const [venta, setVenta] = useState<Solicitud | null>(null);
   const [perdido, setPerdido] = useState<Solicitud | null>(null);
-  const mover = useMoverEtapa(setVenta, setPerdido);
+  const [asignar, setAsignar] = useState<{ s: Solicitud; etapa: number | null } | null>(null);
+  const mover = useMoverEtapa(setVenta, setPerdido, (s, etapa) => setAsignar({ s, etapa }));
 
   const cambiar = (c: Partial<Busqueda>) => navigate({ search: (prev) => ({ ...prev, ...c }), replace: true });
 
@@ -247,6 +248,7 @@ function PaginaSolicitudes() {
                   tarjetas={filtradas.filter((s) => s.etapa === etapa)}
                   nombreServicio={nombreServicio}
                   nombreVendedor={nombreVendedor}
+                  onAsignar={(s) => setAsignar({ s, etapa: null })}
                   onSoltar={(id) => {
                     const s = filtradas.find((x) => x.id === id);
                     if (s) mover(s, etapa);
@@ -261,6 +263,7 @@ function PaginaSolicitudes() {
       </div>
       <DialogoVenta solicitud={venta} abierto={!!venta} onCerrar={() => setVenta(null)} />
       <DialogoPerdido solicitud={perdido} abierto={!!perdido} onCerrar={() => setPerdido(null)} />
+      <DialogoAsignar solicitud={asignar?.s ?? null} etapa={asignar?.etapa} onCerrar={() => setAsignar(null)} />
     </>
   );
 }
@@ -305,12 +308,14 @@ function Columna({
   tarjetas,
   nombreServicio,
   nombreVendedor,
+  onAsignar,
   onSoltar,
 }: {
   etapa: number;
   tarjetas: Solicitud[];
   nombreServicio: (c: number | null) => string;
   nombreVendedor: (id: string | null) => string | null;
+  onAsignar: (s: Solicitud) => void;
   onSoltar: (id: string) => void;
 }) {
   const [encima, setEncima] = useState(false);
@@ -354,6 +359,7 @@ function Columna({
               s={s}
               servicio={s.equipo_codigo ? `${nombreServicio(s.servicio_codigo)} · ${nombreServicio(s.equipo_codigo)}` : nombreServicio(s.servicio_codigo)}
               vendedor={nombreVendedor(s.vendedor_id)}
+              onAsignar={() => onAsignar(s)}
             />
           ))
         )}
@@ -362,7 +368,17 @@ function Columna({
   );
 }
 
-function TarjetaSolicitud({ s, servicio, vendedor }: { s: Solicitud; servicio: string; vendedor: string | null }) {
+function TarjetaSolicitud({
+  s,
+  servicio,
+  vendedor,
+  onAsignar,
+}: {
+  s: Solicitud;
+  servicio: string;
+  vendedor: string | null;
+  onAsignar: () => void;
+}) {
   const navigate = useNavigate();
   const atrasada = !s.vendedor_id && s.etapa === 1 && horasDesde(s.creada_en) > 2;
   return (
@@ -387,9 +403,37 @@ function TarjetaSolicitud({ s, servicio, vendedor }: { s: Solicitud; servicio: s
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1">
         {vendedor ? (
-          <span className="rounded-full bg-petroleo/10 px-2 py-0.5 text-[11px] font-semibold text-petroleo">{vendedor}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onAsignar();
+            }}
+            title="Cambiar vendedor"
+            className="rounded-full bg-petroleo/10 px-2 py-0.5 text-[11px] font-semibold text-petroleo hover:bg-petroleo/20"
+          >
+            {vendedor}
+          </button>
         ) : (
-          <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[11px] font-semibold text-foreground">Sin tomar</span>
+          <>
+            {s.etapa === 1 ? (
+              <span className="rounded-full bg-primary/20 px-2 py-0.5 text-[11px] font-semibold text-foreground">Sin tomar</span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-semibold text-destructive">
+                <AlertTriangle className="h-3 w-3" />
+                Sin vendedor
+              </span>
+            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onAsignar();
+              }}
+              className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold text-petroleo hover:bg-muted"
+            >
+              <UserPlus className="h-3 w-3" />
+              Asignar
+            </button>
+          </>
         )}
         {s.urgente ? <Marca texto="Urgente" tono="rojo" /> : null}
         {!s.completa ? <Marca texto="Incompleta" tono="ambar" /> : null}
@@ -452,7 +496,14 @@ function TablaSolicitudes({
               <td className="px-4 py-3">
                 <EtapaBadge etapa={s.etapa} />
               </td>
-              <td className="px-4 py-3">{nombreVendedor(s.vendedor_id) ?? <span className="font-semibold text-primary">Sin tomar</span>}</td>
+              <td className="px-4 py-3">
+                {nombreVendedor(s.vendedor_id) ??
+                  (s.etapa === 1 ? (
+                    <span className="font-semibold text-primary">Sin tomar</span>
+                  ) : (
+                    <span className="font-semibold text-destructive">Sin vendedor</span>
+                  ))}
+              </td>
               <td className="px-4 py-3 whitespace-nowrap">{haceTiempo(s.creada_en)}</td>
               <td className="px-4 py-3">{s.monto_venta ? moneda(s.monto_venta) : "—"}</td>
               <td className="px-4 py-3">

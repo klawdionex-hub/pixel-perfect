@@ -14,7 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { EncabezadoPagina } from "@/components/AppLayout";
-import { DialogoPerdido, DialogoVenta, useActualizarSolicitud, useMoverEtapa } from "@/components/AccionesSolicitud";
+import { DialogoAsignar, DialogoPerdido, DialogoVenta, useActualizarSolicitud, useMoverEtapa } from "@/components/AccionesSolicitud";
 import { EtapaBadge, Marca } from "@/components/EtapaBadge";
 import { useDescribirCodigo } from "@/components/Folio";
 import { Vacio } from "@/components/Vacio";
@@ -51,7 +51,8 @@ function PaginaSolicitud() {
 
   const [venta, setVenta] = useState<Solicitud | null>(null);
   const [perdido, setPerdido] = useState<Solicitud | null>(null);
-  const mover = useMoverEtapa(setVenta, setPerdido);
+  const [pedirVendedor, setPedirVendedor] = useState<{ s: Solicitud; etapa: number } | null>(null);
+  const mover = useMoverEtapa(setVenta, setPerdido, (s, etapa) => setPedirVendedor({ s, etapa }));
   const [notas, setNotas] = useState("");
   const [avanzado, setAvanzado] = useState(false);
   const [etapaManual, setEtapaManual] = useState("1");
@@ -383,6 +384,14 @@ function PaginaSolicitud() {
         abierto={!!venta}
         onCerrar={() => {
           setVenta(null);
+          refrescar();
+        }}
+      />
+      <DialogoAsignar
+        solicitud={pedirVendedor?.s ?? null}
+        etapa={pedirVendedor?.etapa}
+        onCerrar={() => {
+          setPedirVendedor(null);
           refrescar();
         }}
       />
