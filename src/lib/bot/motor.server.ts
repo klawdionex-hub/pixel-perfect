@@ -249,7 +249,7 @@ async function avisarVendedores(ses: Sesion, sol: { id: string }) {
 async function reenviarAVendedores(ses: Sesion, e: Entrada, codigo: string | null, vendedorId: string | null) {
   const contenido = e.texto?.trim() || (e.media ? `[${e.tipo ?? "archivo"}] ${e.media.url}` : `[${e.tipo ?? "mensaje"}]`);
   try {
-    await reenviarMensajeCliente(ses.db, ses.canal, { contacto: ses.contacto, codigo, vendedorId, contenido }, ses.ahora);
+    await reenviarMensajeCliente(ses.db, ses.canal, { contacto: ses.contacto, codigo, vendedorId, solicitudId: ses.estado.solicitud_id, contenido }, ses.ahora);
   } catch (err) {
     console.error("[bot] No se pudo reenviar el mensaje del cliente", err);
   }

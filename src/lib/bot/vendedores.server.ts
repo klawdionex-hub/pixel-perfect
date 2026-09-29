@@ -36,6 +36,7 @@ export const PLANTILLAS_VENDEDORES = {
   recordatorio: "afpam_prospecto_sin_tomar",
   seguimiento: "afpam_seguimiento_prospecto",
   mensajeCliente: "afpam_mensaje_de_cliente",
+  mensajeSinAsignar: "afpam_mensaje_sin_asignar",
 } as const;
 
 /** Definiciones para registrarlas en Meta (idioma es_MX, categoría UTILITY). */
@@ -45,10 +46,10 @@ export const DEFINICIONES_PLANTILLAS = [
     components: [
       {
         type: "BODY",
-        text: "Nuevo prospecto {{1}}.\nNombre: {{2}}\nTeléfono: {{3}}\nServicio: {{4}}\nUbicación: {{5}}\nObservaciones: {{6}}\n\nSeleccione una opción para continuar.",
-        example: { body_text: [["3-1-0045", "Juan Pérez", "+52 595 123 4567", "Elevadizo con paneles", "Texcoco", "Urgente"]] },
+        text: "Nuevo prospecto {{1}}.\nServicio: {{2}}\nZona: {{3}}\nObservaciones: {{4}}\n\nLos datos de contacto se envían a quien lo tome. Seleccione una opción para continuar.",
+        example: { body_text: [["3-1-0045", "Elevadizo con paneles", "Texcoco", "Urgente"]] },
       },
-      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Lo tomo" }, { type: "QUICK_REPLY", text: "Ver más datos" }] },
+      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Lo tomo" }, { type: "QUICK_REPLY", text: "Ver detalles" }] },
     ],
   },
   {
@@ -57,9 +58,9 @@ export const DEFINICIONES_PLANTILLAS = [
       {
         type: "BODY",
         text: "El prospecto {{1}} ({{2}}, {{3}}) sigue sin asignar desde hace {{4}}.\nSeleccione una opción para continuar.",
-        example: { body_text: [["3-1-0045", "Juan Pérez", "Texcoco", "2 horas"]] },
+        example: { body_text: [["3-1-0045", "Elevadizo con paneles", "Texcoco", "2 horas"]] },
       },
-      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Lo tomo" }, { type: "QUICK_REPLY", text: "Ver más datos" }] },
+      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Lo tomo" }, { type: "QUICK_REPLY", text: "Ver detalles" }] },
     ],
   },
   {
@@ -84,6 +85,17 @@ export const DEFINICIONES_PLANTILLAS = [
         text: 'El cliente {{1}} del prospecto {{2}} envió un mensaje:\n"{{3}}"\nPuede responderle desde su WhatsApp al número {{4}}.',
         example: { body_text: [["Juan Pérez", "3-1-0045", "Buen día, ¿a qué hora vienen?", "+52 595 123 4567"]] },
       },
+    ],
+  },
+  {
+    name: PLANTILLAS_VENDEDORES.mensajeSinAsignar,
+    components: [
+      {
+        type: "BODY",
+        text: 'El cliente del prospecto {{1}} ({{2}}, {{3}}) envió un mensaje nuevo:\n"{{4}}"\nEl prospecto sigue sin asignar. Tómelo para recibir sus datos de contacto.',
+        example: { body_text: [["3-1-0045", "Elevadizo con paneles", "Texcoco", "Buen día, ¿siguen disponibles?"]] },
+      },
+      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Lo tomo" }, { type: "QUICK_REPLY", text: "Ver detalles" }] },
     ],
   },
 ];
@@ -213,30 +225,21 @@ async function responder(canal: Canal, v: Vendedor, s: Salida) {
 export async function avisarNuevoProspecto(db: DB, canal: Canal, solicitudId: string, ahora = new Date()) {
   const s = await cargarSolicitud(db, solicitudId);
   if (!s) return;
-  const c = s.contactos;
   const servicio = await nombreServicio(db, s);
-  const tel = c?.telefono ?? "";
+  const zona = zonaDe(s);
+  // Solo datos del trabajo: nombre y teléfono se envían únicamente a quien lo tome.
   const texto = [
     `Nuevo prospecto ${s.codigo ?? ""}`.trim(),
-    `Nombre: ${c?.nombre ?? "Sin nombre"}`,
-    `Teléfono: ${telefonoLegible(tel)}`,
     `Servicio: ${servicio}`,
-    `Ubicación: ${c?.municipio ?? "Sin especificar"}`,
+    `Zona: ${zona}`,
     `Observaciones: ${marcas(s)}`,
-    `Abrir chat: https://wa.me/${tel.replace(/\D/g, "")}`,
+    "",
+    "Los datos de contacto se envían a quien lo tome.",
   ].join("\n");
-  const interactivo: Salida = {
-    tipo: "botones",
-    texto,
-    opciones: [
-      { id: `tomar:${s.id}`, titulo: "Lo tomo" },
-      { id: `ver:${s.id}`, titulo: "Ver más datos" },
-    ],
-  };
   for (const v of await vendedoresActivos(db)) {
-    await enviarAVendedor(canal, v, ahora, interactivo, {
+    await enviarAVendedor(canal, v, ahora, { tipo: "botones", texto, opciones: botonesTomar(s.id) }, {
       nombre: PLANTILLAS_VENDEDORES.nuevo,
-      parametros: [s.codigo ?? "", c?.nombre ?? "Sin nombre", telefonoLegible(tel), servicio, c?.municipio ?? "Sin especificar", marcas(s)],
+      parametros: [s.codigo ?? "", servicio, zona, marcas(s)],
       botones: [`tomar:${s.id}`, `ver:${s.id}`],
     });
   }
@@ -246,9 +249,18 @@ export async function avisarNuevoProspecto(db: DB, canal: Canal, solicitudId: st
 export async function reenviarMensajeCliente(
   db: DB,
   canal: Canal,
-  o: { contacto: Pick<Contacto, "nombre" | "telefono">; codigo: string | null; vendedorId: string | null; contenido: string },
+  o: {
+    contacto: Pick<Contacto, "nombre" | "telefono">;
+    codigo: string | null;
+    vendedorId: string | null;
+    solicitudId?: string | null | undefined;
+    contenido: string;
+  },
   ahora = new Date(),
 ) {
+  if (!o.vendedorId && o.solicitudId) {
+    return reenviarSinAsignar(db, canal, o.solicitudId, o.contenido, ahora);
+  }
   const tel = o.contacto.telefono;
   const interactivo: Salida = {
     tipo: "texto",
@@ -269,6 +281,27 @@ export async function reenviarMensajeCliente(
   }
 }
 
+/** Mensaje de un cliente cuyo prospecto nadie ha tomado: se avisa a todos sin datos de contacto. */
+async function reenviarSinAsignar(db: DB, canal: Canal, solicitudId: string, contenido: string, ahora: Date) {
+  const s = await cargarSolicitud(db, solicitudId);
+  if (!s) return;
+  const servicio = await nombreServicio(db, s);
+  const zona = zonaDe(s);
+  const texto = [
+    `El cliente del prospecto ${s.codigo} (${servicio}, ${zona}) envió un mensaje nuevo:`,
+    `"${contenido}"`,
+    "",
+    "El prospecto sigue sin asignar. Tómelo para recibir sus datos de contacto.",
+  ].join("\n");
+  for (const v of await vendedoresActivos(db)) {
+    await enviarAVendedor(canal, v, ahora, { tipo: "botones", texto, opciones: botonesTomar(s.id) }, {
+      nombre: PLANTILLAS_VENDEDORES.mensajeSinAsignar,
+      parametros: [s.codigo ?? "", servicio, zona, param(contenido, 300)],
+      botones: [`tomar:${s.id}`, `ver:${s.id}`],
+    });
+  }
+}
+
 function preguntaSeguimiento(s: SolicitudConContacto): Salida {
   return {
     tipo: "lista",
@@ -278,27 +311,62 @@ function preguntaSeguimiento(s: SolicitudConContacto): Salida {
   };
 }
 
+function zonaDe(s: SolicitudConContacto) {
+  const c = s.contactos;
+  if (!c?.municipio) return "Sin especificar";
+  return c.en_estado_de_mexico ? c.municipio : `${c.municipio} (fuera del Estado de México)`;
+}
+
+function botonesTomar(id: string): Opcion[] {
+  return [
+    { id: `tomar:${id}`, titulo: "Lo tomo" },
+    { id: `ver:${id}`, titulo: "Ver detalles" },
+  ];
+}
+
+async function archivosDe(db: DB, solicitudId: string): Promise<Salida[]> {
+  const { data: archivos } = await db.from("archivos").select("url, tipo").eq("solicitud_id", solicitudId).limit(5);
+  return (archivos ?? []).map((a): Salida =>
+    a.tipo === "image" || /\.(jpe?g|png|webp)$/i.test(a.url)
+      ? { tipo: "imagen", url: a.url }
+      : { tipo: "documento", url: a.url, nombre: "Archivo del cliente" },
+  );
+}
+
+function lineasDelTrabajo(s: SolicitudConContacto) {
+  const datos = (s.datos ?? {}) as Record<string, unknown>;
+  return Object.entries(datos)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "")
+    .map(([k, v]) => `${ETIQUETAS_DATOS[k] ?? k}: ${String(v)}`);
+}
+
+/** Detalles para decidir si tomarlo: sin nombre, teléfono ni enlace al chat. */
+async function detallesDelTrabajo(db: DB, s: SolicitudConContacto): Promise<Salida[]> {
+  const texto = [
+    `Detalles del prospecto ${s.codigo}`,
+    `Servicio: ${await nombreServicio(db, s)}`,
+    `Zona: ${zonaDe(s)}`,
+    ...lineasDelTrabajo(s),
+    `Observaciones: ${marcas(s)}`,
+    "",
+    "Los datos de contacto se envían a quien lo tome.",
+  ].join("\n");
+  return [{ tipo: "texto", texto }, ...(await archivosDe(db, s.id))];
+}
+
 async function datosCompletos(db: DB, s: SolicitudConContacto): Promise<Salida[]> {
   const c = s.contactos;
-  const datos = (s.datos ?? {}) as Record<string, unknown>;
   const lineas = [
     `Datos del prospecto ${s.codigo}`,
     `Nombre: ${c?.nombre ?? "Sin nombre"}`,
     `Teléfono: ${telefonoLegible(c?.telefono ?? "")}`,
     `Municipio: ${c?.municipio ?? "Sin especificar"}${c && !c.en_estado_de_mexico ? " (fuera del Estado de México)" : ""}`,
     `Servicio: ${await nombreServicio(db, s)}`,
-    ...Object.entries(datos)
-      .filter(([, v]) => v !== null && v !== undefined && v !== "")
-      .map(([k, v]) => `${ETIQUETAS_DATOS[k] ?? k}: ${String(v)}`),
+    ...lineasDelTrabajo(s),
     `Observaciones: ${marcas(s)}`,
     `Abrir chat: https://wa.me/${(c?.telefono ?? "").replace(/\D/g, "")}`,
   ];
-  const salidas: Salida[] = [{ tipo: "texto", texto: lineas.join("\n") }];
-  const { data: archivos } = await db.from("archivos").select("url, tipo").eq("solicitud_id", s.id).limit(5);
-  for (const a of archivos ?? []) {
-    salidas.push(a.tipo === "image" || /\.(jpe?g|png|webp)$/i.test(a.url) ? { tipo: "imagen", url: a.url } : { tipo: "documento", url: a.url, nombre: "Archivo del cliente" });
-  }
-  return salidas;
+  return [{ tipo: "texto", texto: lineas.join("\n") }, ...(await archivosDe(db, s.id))];
 }
 
 // ---------------------------------------------------------------- mensajes de vendedores
@@ -473,10 +541,16 @@ export async function procesarMensajeVendedor(
   if (accion === "ver" && a) {
     const s = await cargarSolicitud(db, a);
     if (!s) return responder(canal, v, { tipo: "texto", texto: "No encontré ese prospecto." });
-    for (const salida of await datosCompletos(db, s)) await responder(canal, v, salida);
-    if (!s.vendedor_id) {
-      await responder(canal, v, { tipo: "botones", texto: `¿Desea tomar el prospecto ${s.codigo}?`, opciones: [{ id: `tomar:${s.id}`, titulo: "Lo tomo" }] });
+    if (s.vendedor_id === v.id) {
+      for (const salida of await datosCompletos(db, s)) await responder(canal, v, salida);
+      return;
     }
+    if (s.vendedor_id) {
+      const { data: otro } = await db.from("usuarios_perfil").select("nombre").eq("id", s.vendedor_id).maybeSingle();
+      return responder(canal, v, { tipo: "texto", texto: `Este prospecto ya fue tomado por ${otro?.nombre ?? "otro vendedor"}.` });
+    }
+    for (const salida of await detallesDelTrabajo(db, s)) await responder(canal, v, salida);
+    await responder(canal, v, { tipo: "botones", texto: `¿Desea tomar el prospecto ${s.codigo}?`, opciones: [{ id: `tomar:${s.id}`, titulo: "Lo tomo" }] });
     return;
   }
   if (accion === "seg" && a) {
@@ -601,20 +675,18 @@ export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date())
     const enviadosHoy = control.dia === hoy ? control.recordatorios ?? 0 : 0;
     const ultimo = control.ultimo_recordatorio ?? s.creada_en;
     if (enviadosHoy >= maxDia || horasDesde(ultimo, ahora) < horasRec) continue;
-    const c = s.contactos;
     const hace = haceTexto(horasDesde(s.creada_en, ahora));
+    const servicio = await nombreServicio(db, s);
+    const zona = zonaDe(s);
     const interactivo: Salida = {
       tipo: "botones",
-      texto: `El prospecto ${s.codigo} (${c?.nombre ?? "Sin nombre"}, ${c?.municipio ?? "sin municipio"}) sigue sin asignar desde hace ${hace}.`,
-      opciones: [
-        { id: `tomar:${s.id}`, titulo: "Lo tomo" },
-        { id: `ver:${s.id}`, titulo: "Ver más datos" },
-      ],
+      texto: `El prospecto ${s.codigo} (${servicio}, ${zona}) sigue sin asignar desde hace ${hace}.`,
+      opciones: botonesTomar(s.id),
     };
     for (const v of vendedores) {
       await enviarAVendedor(canal, v, ahora, interactivo, {
         nombre: PLANTILLAS_VENDEDORES.recordatorio,
-        parametros: [s.codigo ?? "", c?.nombre ?? "Sin nombre", c?.municipio ?? "sin municipio", hace],
+        parametros: [s.codigo ?? "", servicio, zona, hace],
         botones: [`tomar:${s.id}`, `ver:${s.id}`],
       });
     }

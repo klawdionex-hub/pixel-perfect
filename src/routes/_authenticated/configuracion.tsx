@@ -779,7 +779,7 @@ function ProbarBot() {
           <li>Escriba "asesor" en cualquier momento para pasar con un vendedor.</li>
           <li>Los recuadros punteados muestran el aviso que recibiría cada vendedor con WhatsApp registrado en Usuarios.</li>
           <li>La solicitud creada aparece en Solicitudes, marcada como dato de ejemplo.</li>
-          <li>En los avisos a vendedores puede tocar "Lo tomo", "Ver más datos" o el resultado, como si fuera el vendedor.</li>
+          <li>En los avisos a vendedores puede tocar "Lo tomo", "Ver detalles" o el resultado. Antes de tomarlo, el aviso no muestra nombre ni teléfono del cliente, como si fuera el vendedor.</li>
           <li>Con "Escribir como: Vendedor" puede probar comandos como "0045 cotizado" o "0045 vendido 12500" (use el número del folio).</li>
           <li>"Empezar de nuevo" borra este cliente de prueba para repetir el flujo desde el saludo.</li>
         </ul>
