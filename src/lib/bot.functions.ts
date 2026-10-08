@@ -133,6 +133,38 @@ export const diagnosticoWhatsApp = createServerFn({ method: "POST" })
     return JSON.stringify({ numero, cuenta, plantillas }, null, 2);
   });
 
+/**
+ * Revisa si la cuenta de WhatsApp está suscrita a la app (sin esto no llegan los mensajes
+ * de los clientes al webhook) y, si se pide, la suscribe.
+ */
+export const suscripcionWhatsApp = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ suscribir: z.boolean().default(false) }).parse(d))
+  .handler(async ({ data }) => {
+    const { consultarMeta, publicarMeta } = await import("@/lib/whatsapp.server");
+    const wabaId = process.env["WHATSAPP_WABA_ID"] ?? "";
+    const resultado: Record<string, unknown> = {};
+    if (data.suscribir) resultado["suscribir"] = await publicarMeta(`${wabaId}/subscribed_apps`, {});
+    resultado["apps_suscritas"] = await consultarMeta(`${wabaId}/subscribed_apps`);
+    return JSON.stringify(resultado, null, 2);
+  });
+
+/** Últimos mensajes y avisos que llegaron al webhook (para saber si Meta está entregando). */
+export const ultimosRecibidos = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data } = await context.supabase
+      .from("mensajes")
+      .select("creado_en, autor, tipo, contenido, estado")
+      .eq("direccion", "entrante")
+      .order("creado_en", { ascending: false })
+      .limit(8);
+    const filas = (data ?? []).map(
+      (m) => `${new Date(m.creado_en).toLocaleString("es-MX", { timeZone: "America/Mexico_City" })} · ${m.autor} · ${m.estado ?? ""} · ${(m.contenido ?? `[${m.tipo}]`).slice(0, 120)}`,
+    );
+    return filas.length ? filas.join("\n") : "Todavía no ha llegado ningún mensaje al webhook.";
+  });
+
 /** Envía la plantilla hello_world a un número para comprobar que los envíos funcionan. */
 export const enviarPlantillaPrueba = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])

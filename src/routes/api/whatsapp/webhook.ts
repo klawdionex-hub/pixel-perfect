@@ -54,6 +54,21 @@ export const Route = createFileRoute("/api/whatsapp/webhook")({
         const cuerpo = await request.text();
         const { verificarFirma } = await import("@/lib/whatsapp.server");
         if (!(await verificarFirma(cuerpo, request.headers.get("x-hub-signature-256")))) {
+          // Si parece un aviso real de WhatsApp, se deja constancia para el diagnóstico del panel.
+          if (cuerpo.includes('"whatsapp_business_account"')) {
+            try {
+              const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+              await supabaseAdmin.from("mensajes").insert({
+                direccion: "entrante",
+                autor: "sistema",
+                tipo: "webhook",
+                contenido: "Meta envió un aviso, pero la firma no coincide: revise que META_APP_SECRET sea la clave secreta de la app actual.",
+                estado: "rechazado",
+              });
+            } catch {
+              // sin registro
+            }
+          }
           return new Response("Firma inválida", { status: 401 });
         }
 

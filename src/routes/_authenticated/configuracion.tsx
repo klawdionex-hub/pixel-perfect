@@ -27,6 +27,8 @@ import {
   reiniciarSimulacion,
   simularMensaje,
   simularVendedor,
+  suscripcionWhatsApp,
+  ultimosRecibidos,
   type SalidaSimulada,
 } from "@/lib/bot.functions";
 
@@ -514,6 +516,8 @@ function PlantillasVendedores() {
 function Diagnostico() {
   const diagnosticoFn = useServerFn(diagnosticoWhatsApp);
   const pruebaFn = useServerFn(enviarPlantillaPrueba);
+  const suscripcionFn = useServerFn(suscripcionWhatsApp);
+  const ultimosFn = useServerFn(ultimosRecibidos);
   const estadoFn = useServerFn(estadoEnvio);
   const [resultado, setResultado] = useState<unknown>(null);
   const [telefono, setTelefono] = useState("");
@@ -558,9 +562,24 @@ function Diagnostico() {
       <p className="text-sm text-muted-foreground">
         Consulta a Meta con los secretos del servidor y muestra la respuesta exacta. Los secretos no se muestran.
       </p>
-      <Button variant="outline" disabled={ocupado} onClick={() => correr(() => diagnosticoFn())}>
-        Revisar número y cuenta
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" disabled={ocupado} onClick={() => correr(() => diagnosticoFn())}>
+          Revisar número y cuenta
+        </Button>
+        <Button variant="outline" disabled={ocupado} onClick={() => correr(() => suscripcionFn({ data: { suscribir: false } }))}>
+          Revisar recepción de mensajes
+        </Button>
+        <Button disabled={ocupado} onClick={() => correr(() => suscripcionFn({ data: { suscribir: true } }))}>
+          Activar recepción de mensajes
+        </Button>
+        <Button variant="outline" disabled={ocupado} onClick={() => correr(() => ultimosFn())}>
+          Ver lo último que llegó
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Si los clientes escriben y el bot no contesta, presione "Activar recepción de mensajes": conecta la cuenta de
+        WhatsApp con la app para que Meta envíe los mensajes a este sistema.
+      </p>
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-56 flex-1">
           <Label>Enviar plantilla de prueba "hello_world" a (10 dígitos, o con 52 / 521)</Label>
