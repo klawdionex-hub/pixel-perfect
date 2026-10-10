@@ -125,7 +125,7 @@ export const diagnosticoWhatsApp = createServerFn({ method: "POST" })
     const phoneId = process.env["WHATSAPP_PHONE_NUMBER_ID"] ?? "";
     const wabaId = process.env["WHATSAPP_WABA_ID"] ?? "";
     const [numero, cuenta, plantillas] = await Promise.all([
-      consultarMeta(`${phoneId}?fields=display_phone_number,verified_name,code_verification_status,quality_rating,status,platform_type,account_mode`),
+      consultarMeta(`${phoneId}?fields=display_phone_number,verified_name,name_status,code_verification_status,quality_rating,status,platform_type,account_mode,messaging_limit_tier`),
       consultarMeta(`${wabaId}?fields=name,account_review_status,business_verification_status,currency`),
       consultarMeta(`${wabaId}/message_templates?fields=name,language,status&limit=20`),
     ]);
@@ -147,6 +147,21 @@ export const suscripcionWhatsApp = createServerFn({ method: "POST" })
     if (data.suscribir) resultado["suscribir"] = await publicarMeta(`${wabaId}/subscribed_apps`, {});
     resultado["apps_suscritas"] = await consultarMeta(`${wabaId}/subscribed_apps`);
     return JSON.stringify(resultado, null, 2);
+  });
+
+/**
+ * Registra en la API de WhatsApp el número configurado (WHATSAPP_PHONE_NUMBER_ID) con un PIN de
+ * 6 dígitos (verificación en dos pasos). Necesario cuando el número aparece como "Pendiente".
+ */
+export const registrarNumero = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ pin: z.string().regex(/^\d{6}$/, "El PIN debe tener 6 dígitos") }).parse(d))
+  .handler(async ({ data }) => {
+    const { publicarMeta, consultarMeta } = await import("@/lib/whatsapp.server");
+    const phoneId = process.env["WHATSAPP_PHONE_NUMBER_ID"] ?? "";
+    const registro = await publicarMeta(`${phoneId}/register`, { messaging_product: "whatsapp", pin: data.pin });
+    const numero = await consultarMeta(`${phoneId}?fields=display_phone_number,verified_name,name_status,status,code_verification_status`);
+    return JSON.stringify({ registro, numero }, null, 2);
   });
 
 /** Últimos mensajes y avisos que llegaron al webhook (para saber si Meta está entregando). */

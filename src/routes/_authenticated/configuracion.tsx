@@ -24,6 +24,7 @@ import {
   estadoEnvio,
   estadoIntegracion,
   estadoPlantillasVendedores,
+  registrarNumero,
   reiniciarSimulacion,
   simularMensaje,
   simularVendedor,
@@ -518,6 +519,8 @@ function Diagnostico() {
   const pruebaFn = useServerFn(enviarPlantillaPrueba);
   const suscripcionFn = useServerFn(suscripcionWhatsApp);
   const ultimosFn = useServerFn(ultimosRecibidos);
+  const registrarFn = useServerFn(registrarNumero);
+  const [pin, setPin] = useState("");
   const estadoFn = useServerFn(estadoEnvio);
   const [resultado, setResultado] = useState<unknown>(null);
   const [telefono, setTelefono] = useState("");
@@ -574,6 +577,18 @@ function Diagnostico() {
         </Button>
         <Button variant="outline" disabled={ocupado} onClick={() => correr(() => ultimosFn())}>
           Ver lo último que llegó
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-end gap-2 rounded-md border border-dashed border-border p-3">
+        <div className="min-w-48 flex-1">
+          <Label>Registrar el número con un PIN (6 dígitos que usted invente)</Label>
+          <Input inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} placeholder="123456" />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Solo si el número nuevo aparece como "Pendiente". Anote el PIN: Meta lo pide si algún día cambia el número de app.
+          </p>
+        </div>
+        <Button variant="outline" disabled={ocupado || pin.length !== 6} onClick={() => correr(() => registrarFn({ data: { pin } }))}>
+          Registrar número
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
