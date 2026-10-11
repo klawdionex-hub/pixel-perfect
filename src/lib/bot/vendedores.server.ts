@@ -18,7 +18,13 @@ export type Vendedor = Pick<Perfil, "id" | "nombre" | "whatsapp" | "activo"> &
   Partial<Pick<Perfil, "ultimo_mensaje_wa" | "estado_bot" | "es_vendedor">>;
 
 /** Lo que el bot espera que el vendedor responda a continuación. */
-type EstadoVendedor = { esperando?: "monto" | "motivo"; solicitud_id?: string; desde?: string };
+type EstadoVendedor = {
+  esperando?: "monto" | "motivo";
+  solicitud_id?: string;
+  desde?: string;
+  /** Última vez que se le envió la lista de prospectos (evita ciclos con respuestas automáticas). */
+  ultima_ayuda?: string;
+};
 
 /** Control interno de avisos por solicitud (columna solicitudes.control_bot). */
 type ControlBot = {
@@ -646,6 +652,10 @@ export async function procesarMensajeVendedor(
     return registrarResultado(db, canal, v, "4", s.id, ahora);
   }
 
+  // Si el vendedor tiene respuestas automáticas (WhatsApp Business), su respuesta llegaría aquí y el bot
+  // contestaría otra vez: la lista solo se envía una vez cada 10 minutos para no armar un ciclo.
+  if (horasDesde(estado.ultima_ayuda, ahora) < 1 / 6) return;
+  await guardarEstadoVendedor(db, v, { ...estado, ultima_ayuda: ahora.toISOString() });
   return enviarPendientes(db, canal, v);
 }
 

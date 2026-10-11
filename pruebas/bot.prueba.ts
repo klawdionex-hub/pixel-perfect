@@ -94,5 +94,21 @@ marca = log.length;
 await cliente(K, "Hola");
 afirmar(log.slice(marca + 1).length === 1, "sin foto ni ubicación configuradas solo va el saludo");
 
+
+// --- Respuestas automáticas de un vendedor con WhatsApp Business: sin ciclo
+reloj.ahora = new Date(reloj.ahora.getTime() + 3600000);
+marca = log.length;
+await vendedor("v2", "Gracias por escribir, en breve te atendemos");
+await vendedor("v2", "Gracias por escribir, en breve te atendemos");
+await vendedor("v2", "Gracias por escribir, en breve te atendemos");
+const respuestasAna = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana"));
+afirmar(respuestasAna.length === 1, `respuesta automática del vendedor no arma ciclo (${respuestasAna.length} respuesta)`);
+await vendedor("v2", "0004 cotizado");
+afirmar(log.at(-1)!.startsWith("VENDEDOR Ana"), "los comandos siguen funcionando aunque haya pausa de ayuda");
+reloj.ahora = new Date(reloj.ahora.getTime() + 11 * 60000);
+marca = log.length;
+await vendedor("v2", "hola");
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Ana")), "después de 10 minutos vuelve a recibir la lista");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;
