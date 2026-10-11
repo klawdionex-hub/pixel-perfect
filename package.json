@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "prueba:bot": "rolldown -c pruebas/rolldown.config.mjs && node node_modules/.cache/prueba-bot.mjs"
   },
   "overrides": {
     "rolldown": "1.2.1"

@@ -65,7 +65,12 @@ function Pagina() {
               <TabsTrigger value="ejemplo">Datos de ejemplo</TabsTrigger>
             </TabsList>
             <TabsContent value="probar"><ProbarBot /></TabsContent>
-            <TabsContent value="general"><Negocio config={q.data as Config} /></TabsContent>
+            <TabsContent value="general">
+              <div className="space-y-6">
+                <Bienvenida config={q.data as Config} />
+                <Negocio config={q.data as Config} />
+              </div>
+            </TabsContent>
             <TabsContent value="textos"><Textos config={q.data as Config} /></TabsContent>
             <TabsContent value="tiempos"><Tiempos config={q.data as Config} /></TabsContent>
             <TabsContent value="servicios"><Servicios /></TabsContent>
@@ -179,6 +184,117 @@ function Negocio({ config }: { config: Config }) {
       >
         Guardar
       </Button>
+    </div>
+  );
+}
+
+/** Foto y ubicación que el bot envía antes del saludo a clientes nuevos. */
+function Bienvenida({ config }: { config: Config }) {
+  const guardar = useGuardarConfig();
+  const extra = (config.textos_extra ?? {}) as Record<string, string>;
+  const [imagen, setImagen] = useState(extra["bienvenida_imagen_url"] ?? "");
+  const [ubicacion, setUbicacion] = useState(extra["bienvenida_ubicacion"] === "si");
+  const [subiendo, setSubiendo] = useState(false);
+  const tieneCoordenadas = config["latitud"] != null && config["longitud"] != null && config["latitud"] !== "" && config["longitud"] !== "";
+
+  async function guardarBienvenida(cambios: { imagen?: string; ubicacion?: boolean }) {
+    const nuevo = { ...extra };
+    const img = cambios.imagen ?? imagen;
+    const ubi = cambios.ubicacion ?? ubicacion;
+    if (img) nuevo["bienvenida_imagen_url"] = img;
+    else delete nuevo["bienvenida_imagen_url"];
+    nuevo["bienvenida_ubicacion"] = ubi ? "si" : "no";
+    await guardar({ textos_extra: nuevo });
+  }
+
+  async function subir(archivo: File) {
+    if (!archivo.type.startsWith("image/")) {
+      toast.error("Suba una imagen (JPG o PNG).");
+      return;
+    }
+    if (archivo.size > 5 * 1024 * 1024) {
+      toast.error("La imagen debe pesar menos de 5 MB.");
+      return;
+    }
+    setSubiendo(true);
+    const ext = archivo.name.split(".").pop()?.toLowerCase() ?? "jpg";
+    const ruta = `bienvenida/foto-${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("media").upload(ruta, archivo, { contentType: archivo.type });
+    setSubiendo(false);
+    if (error) {
+      toast.error(`No se pudo subir: ${error.message}`);
+      return;
+    }
+    const url = supabase.storage.from("media").getPublicUrl(ruta).data.publicUrl;
+    setImagen(url);
+    await guardarBienvenida({ imagen: url });
+  }
+
+  return (
+    <div className="space-y-4 rounded-md border border-border bg-card p-5">
+      <div>
+        <h2 className="text-base">Bienvenida a clientes nuevos</h2>
+        <p className="text-sm text-muted-foreground">
+          Lo que el bot envía antes del saludo, la primera vez que alguien escribe. Es gratis: va dentro de las 24 horas que
+          abre el cliente al escribir.
+        </p>
+      </div>
+      <div className="grid gap-5 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Foto del local o de un trabajo terminado</Label>
+          {imagen ? (
+            <div className="space-y-2">
+              <img src={imagen} alt="Foto de bienvenida" className="h-40 w-full rounded-md border border-border object-cover" />
+              <div className="flex gap-2">
+                <label className="cursor-pointer text-xs font-semibold text-petroleo underline">
+                  Cambiar foto
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && subir(e.target.files[0])} />
+                </label>
+                <button
+                  className="text-xs font-semibold text-destructive underline"
+                  onClick={() => {
+                    setImagen("");
+                    void guardarBienvenida({ imagen: "" });
+                  }}
+                >
+                  Quitar foto
+                </button>
+              </div>
+            </div>
+          ) : (
+            <label className="flex h-40 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border text-sm text-muted-foreground hover:bg-muted">
+              {subiendo ? "Subiendo…" : "Haga clic para subir una foto"}
+              <span className="text-xs">JPG o PNG, menos de 5 MB</span>
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && subir(e.target.files[0])} />
+            </label>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label>Ubicación del local</Label>
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={ubicacion}
+              disabled={!tieneCoordenadas}
+              onCheckedChange={(v) => {
+                setUbicacion(v);
+                void guardarBienvenida({ ubicacion: v });
+              }}
+            />
+            <span className="text-sm">Enviar el pin de ubicación al saludar</span>
+          </div>
+          {tieneCoordenadas ? (
+            <p className="text-xs text-muted-foreground">
+              Se envía el punto guardado abajo (latitud {String(config["latitud"])}, longitud {String(config["longitud"])}).
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Primero llene <b>Latitud</b> y <b>Longitud</b> abajo y guarde. Para obtenerlas: abra Google Maps, haga clic
+              derecho sobre su local y haga clic en los números que aparecen arriba (se copian). El primero es la latitud y
+              el segundo la longitud.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -369,6 +369,28 @@ async function enviarInformacion(ses: Sesion, id: string) {
   }
 }
 
+/**
+ * Foto y ubicación del local antes del saludo a clientes nuevos (opcional, desde Configuración).
+ * Se guardan en configuracion.textos_extra: bienvenida_imagen_url y bienvenida_ubicacion ("si").
+ */
+async function enviarBienvenida(ses: Sesion) {
+  const c = ses.config;
+  const extra = c.textos_extra ?? {};
+  const imagen = extra["bienvenida_imagen_url"];
+  if (imagen) {
+    await enviar(ses, { tipo: "imagen", url: imagen, texto: String(c["nombre_negocio"] ?? "AFPAM Texcoco") });
+  }
+  if (extra["bienvenida_ubicacion"] === "si" && c["latitud"] != null && c["longitud"] != null) {
+    await enviar(ses, {
+      tipo: "ubicacion",
+      lat: Number(c["latitud"]),
+      lng: Number(c["longitud"]),
+      nombre: String(c["nombre_negocio"] ?? "AFPAM Texcoco"),
+      ...(c["direccion"] ? { direccion: String(c["direccion"]) } : {}),
+    });
+  }
+}
+
 type Resultado = Paso | "cerrar" | "asesor" | "invalido" | "igual";
 
 async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Resultado> {
@@ -737,6 +759,7 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
       ses.estado.solicitud_id = ultima?.id ?? null;
       await irA(ses, "regreso");
     } else {
+      await enviarBienvenida(ses);
       await irA(ses, "nombre");
     }
     return;
