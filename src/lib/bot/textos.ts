@@ -21,6 +21,7 @@ export type ClaveTexto =
   | "pregunta_ultimo_mantenimiento"
   | "pregunta_horario"
   | "cierre"
+  | "resena"
   | "fuera_de_horario"
   | "no_entendi"
   | "traspaso_asesor"
@@ -127,6 +128,10 @@ export const TEXTOS: Record<ClaveTexto, DefTexto> = {
     columna: "texto_cierre",
     porDefecto:
       "Gracias, {nombre}. Hemos registrado su solicitud con el folio {codigo}. Uno de nuestros asesores se comunicará con usted a la brevedad.",
+  },
+  resena: {
+    etiqueta: "Invitación a calificar en Google (se envía al cerrar la solicitud si hay enlace de reseñas; {enlace})",
+    porDefecto: "Si ya conoce nuestro trabajo, le agradeceríamos mucho que nos califique en Google: {enlace}",
   },
   fuera_de_horario: {
     etiqueta: "Aviso fuera de horario (se agrega al cierre)",

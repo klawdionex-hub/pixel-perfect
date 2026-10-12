@@ -16,6 +16,7 @@ import { claves, traerConfiguracion, traerServicios, type Servicio } from "@/lib
 import { cabeza } from "@/lib/cabeza";
 import { TEXTOS, valorEditable, type ClaveTexto, type ConfigBot } from "@/lib/bot/textos";
 import { normalizarOpciones, textoDeSalida } from "@/lib/bot/salida";
+import { leerCoordenadas } from "@/lib/bot/coordenadas";
 import {
   crearPlantillasVendedores,
   diagnosticoWhatsApp,
@@ -135,8 +136,13 @@ const CAMPOS_NEGOCIO: Array<{ col: string; etiqueta: string; largo?: boolean; ti
   { col: "cobertura", etiqueta: "Zonas de cobertura" },
   { col: "direccion", etiqueta: "Dirección" },
   { col: "ubicacion_maps_url", etiqueta: "Enlace de Google Maps" },
-  { col: "latitud", etiqueta: "Latitud (para enviar el pin)", tipo: "number" },
-  { col: "longitud", etiqueta: "Longitud (para enviar el pin)", tipo: "number" },
+  {
+    col: "latitud",
+    etiqueta: "Latitud (para enviar el pin)",
+    tipo: "coordenada",
+    ayuda: "Puede pegar aquí las dos juntas, tal como las copia Google Maps (19.5123, -98.8812), y se separan solas.",
+  },
+  { col: "longitud", etiqueta: "Longitud (para enviar el pin)", tipo: "coordenada" },
   { col: "formas_pago", etiqueta: "Formas de pago" },
   { col: "garantia", etiqueta: "Garantía" },
   { col: "link_resena_google", etiqueta: "Enlace para reseñas en Google" },
@@ -163,24 +169,42 @@ function Negocio({ config }: { config: Config }) {
             etiqueta={c.etiqueta}
             valor={f[c.col]}
             largo={c.largo}
-            tipo={c.tipo}
+            tipo={c.tipo === "coordenada" ? undefined : c.tipo}
             ayuda={c.ayuda}
-            onChange={(v) => setF({ ...f, [c.col]: v })}
+            onChange={(v) => {
+              const par = c.tipo === "coordenada" && typeof v === "string" ? leerCoordenadas(v) : null;
+              setF(par ? { ...f, latitud: String(par.lat), longitud: String(par.lng) } : { ...f, [c.col]: v });
+            }}
           />
         ))}
       </div>
       <Button
-        onClick={() =>
-          guardar(
-            Object.fromEntries(
-              CAMPOS_NEGOCIO.map((c) => {
-                const v = f[c.col];
-                if (c.tipo === "number") return [c.col, v === "" || v == null ? null : Number(v)];
-                return [c.col, v === "" ? null : v];
-              }),
-            ),
-          )
-        }
+        onClick={() => {
+          const datos: Record<string, unknown> = Object.fromEntries(
+            CAMPOS_NEGOCIO.map((c) => {
+              const v = f[c.col];
+              if (c.tipo === "number" || c.tipo === "coordenada") {
+                const n = Number(String(v ?? "").trim());
+                return [c.col, v === "" || v == null || !Number.isFinite(n) ? null : n];
+              }
+              return [c.col, v === "" ? null : v];
+            }),
+          );
+          // Si no hay coordenadas pero el enlace de Maps las trae, se toman de ahí.
+          if ((datos["latitud"] == null || datos["longitud"] == null) && typeof datos["ubicacion_maps_url"] === "string") {
+            const par = leerCoordenadas(datos["ubicacion_maps_url"]);
+            if (par) {
+              datos["latitud"] = par.lat;
+              datos["longitud"] = par.lng;
+              setF({ ...f, latitud: String(par.lat), longitud: String(par.lng) });
+            }
+          }
+          if ((f["latitud"] || f["longitud"]) && (datos["latitud"] == null || datos["longitud"] == null)) {
+            toast.error("Revise la latitud y la longitud: deben ser números, por ejemplo 19.5123 y -98.8812.");
+            return;
+          }
+          void guardar(datos);
+        }}
       >
         Guardar
       </Button>
@@ -193,7 +217,7 @@ function Bienvenida({ config }: { config: Config }) {
   const guardar = useGuardarConfig();
   const extra = (config.textos_extra ?? {}) as Record<string, string>;
   const [imagen, setImagen] = useState(extra["bienvenida_imagen_url"] ?? "");
-  const [ubicacion, setUbicacion] = useState(extra["bienvenida_ubicacion"] === "si");
+  const [ubicacion, setUbicacion] = useState(extra["bienvenida_ubicacion"] !== "no");
   const [subiendo, setSubiendo] = useState(false);
   const tieneCoordenadas = config["latitud"] != null && config["longitud"] != null && config["latitud"] !== "" && config["longitud"] !== "";
 
@@ -274,7 +298,6 @@ function Bienvenida({ config }: { config: Config }) {
           <div className="flex items-center gap-2">
             <Switch
               checked={ubicacion}
-              disabled={!tieneCoordenadas}
               onCheckedChange={(v) => {
                 setUbicacion(v);
                 void guardarBienvenida({ ubicacion: v });
@@ -288,9 +311,9 @@ function Bienvenida({ config }: { config: Config }) {
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Primero llene <b>Latitud</b> y <b>Longitud</b> abajo y guarde. Para obtenerlas: abra Google Maps, haga clic
-              derecho sobre su local y haga clic en los números que aparecen arriba (se copian). El primero es la latitud y
-              el segundo la longitud.
+              Falta la ubicación: llene <b>Latitud</b> y <b>Longitud</b> abajo y guarde. Para obtenerlas: abra Google Maps, haga clic
+              derecho sobre su local y haga clic en los números que aparecen arriba (se copian) y péguelos en Latitud; se
+              separan solos.
             </p>
           )}
         </div>

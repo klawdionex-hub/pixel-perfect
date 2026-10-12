@@ -5,6 +5,7 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import { normalizarOpciones, textoDeSalida, type Opcion, type Salida } from "./salida";
 import { enHorarioLaboral, texto, type ClaveTexto, type ConfigBot } from "./textos";
 import { avisarNuevoProspecto, reenviarMensajeCliente, tareasVendedores } from "./vendedores.server";
+import { leerCoordenadas } from "./coordenadas";
 
 type DB = SupabaseClient<Database>;
 
@@ -350,11 +351,11 @@ async function enviarInformacion(ses: Sesion, id: string) {
     if (c["direccion"]) partes.push(`Dirección: ${c["direccion"]}`);
     if (c["ubicacion_maps_url"]) partes.push(`Ubicación: ${c["ubicacion_maps_url"]}`);
     await enviar(ses, { tipo: "texto", texto: partes.join("\n") });
-    if (c["latitud"] != null && c["longitud"] != null) {
+    const punto = coordenadasDelLocal(c);
+    if (punto) {
       await enviar(ses, {
         tipo: "ubicacion",
-        lat: Number(c["latitud"]),
-        lng: Number(c["longitud"]),
+        ...punto,
         nombre: String(c["nombre_negocio"] ?? "AFPAM Texcoco"),
         ...(c["direccion"] ? { direccion: String(c["direccion"]) } : {}),
       });
@@ -380,15 +381,26 @@ async function enviarBienvenida(ses: Sesion) {
   if (imagen) {
     await enviar(ses, { tipo: "imagen", url: imagen, texto: String(c["nombre_negocio"] ?? "AFPAM Texcoco") });
   }
-  if (extra["bienvenida_ubicacion"] === "si" && c["latitud"] != null && c["longitud"] != null) {
+  if (extra["bienvenida_ubicacion"] === "no") return;
+  const punto = coordenadasDelLocal(c);
+  if (punto) {
     await enviar(ses, {
       tipo: "ubicacion",
-      lat: Number(c["latitud"]),
-      lng: Number(c["longitud"]),
+      ...punto,
       nombre: String(c["nombre_negocio"] ?? "AFPAM Texcoco"),
       ...(c["direccion"] ? { direccion: String(c["direccion"]) } : {}),
     });
+  } else if (typeof c["ubicacion_maps_url"] === "string" && c["ubicacion_maps_url"].trim()) {
+    await enviar(ses, { tipo: "texto", texto: `Nuestra ubicación: ${c["ubicacion_maps_url"].trim()}` });
   }
+}
+
+/** Coordenadas guardadas; si faltan, intenta sacarlas del enlace de Google Maps. */
+function coordenadasDelLocal(c: Record<string, unknown>): { lat: number; lng: number } | null {
+  const lat = Number(c["latitud"]);
+  const lng = Number(c["longitud"]);
+  if (c["latitud"] != null && c["longitud"] != null && Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng)) return { lat, lng };
+  return typeof c["ubicacion_maps_url"] === "string" ? leerCoordenadas(c["ubicacion_maps_url"]) : null;
 }
 
 type Resultado = Paso | "cerrar" | "asesor" | "invalido" | "igual";
@@ -579,6 +591,10 @@ async function cerrarSolicitud(ses: Sesion) {
         ? { tipo: "documento", url: servicio.catalogo_url, nombre: `Catalogo ${servicio.nombre}.pdf` }
         : { tipo: "imagen", url: servicio.catalogo_url, texto: servicio.nombre },
     );
+  }
+  const enlaceResena = ses.config["link_resena_google"];
+  if (typeof enlaceResena === "string" && enlaceResena.trim()) {
+    await enviar(ses, { tipo: "texto", texto: texto(ses.config, "resena", { enlace: enlaceResena.trim() }) });
   }
   ses.estado.paso_actual = null;
   ses.estado.en_manos_de_vendedor = true;

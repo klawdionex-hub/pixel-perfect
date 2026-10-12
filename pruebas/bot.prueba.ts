@@ -94,6 +94,21 @@ marca = log.length;
 await cliente(K, "Hola");
 afirmar(log.slice(marca + 1).length === 1, "sin foto ni ubicación configuradas solo va el saludo");
 
+// --- Ubicación: por defecto se envía; sin coordenadas se toman del enlace de Maps
+config.textos_extra = {};
+config.latitud = null; config.longitud = null;
+config.ubicacion_maps_url = "https://www.google.com/maps/place/AFPAM/@19.5123,-98.8812,17z";
+marca = log.length;
+await cliente("+525597777777", "Hola");
+afirmar(log.slice(marca).some((l) => l.startsWith("BOT> [Ubicación]")), "pin de ubicación desde el enlace de Google Maps");
+config.latitud = 19.51; config.longitud = -98.88;
+
+// --- Invitación a reseña al cerrar
+config.link_resena_google = "https://g.page/r/afpam/review";
+const R = "+525596666666";
+for (const t of ["Hola", "Rosa", "1", "si", "Texcoco", "elevadizo", "Sí, ya lo tengo", "4 x 2.4 m", "3", "omitir", "tarde"]) await cliente(R, t);
+afirmar(log.some((l) => l.includes("califique en Google: https://g.page/r/afpam/review")), "invitación a calificar en Google al cerrar");
+
 
 // --- Respuestas automáticas de un vendedor con WhatsApp Business: sin ciclo
 reloj.ahora = new Date(reloj.ahora.getTime() + 3600000);
