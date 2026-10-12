@@ -1,6 +1,11 @@
-# Pixel Perfect
+# AFPAM Bot
 
-Implement exactly the screenshot and nothing else
+Bot de WhatsApp y panel de ventas de **AFPAM Texcoco, Puertas Automáticas**.
+
+- **Bot** (`src/lib/bot/`): atiende a los clientes por WhatsApp, recolecta sus datos, avisa a los vendedores y registra ventas y comisiones.
+- **Webhook de WhatsApp**: `/api/whatsapp/webhook` · **Tarea programada**: `/api/cron/bot`
+- **Panel**: inicio, tablero de solicitudes, contactos, vendedores y comisiones, configuración del bot.
+- **Pruebas del bot**: `npm run prueba:bot`
 
 This project was built with [Lovable](https://lovable.dev).
 
