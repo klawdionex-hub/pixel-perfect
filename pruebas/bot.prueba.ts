@@ -125,5 +125,22 @@ marca = log.length;
 await vendedor("v2", "hola");
 afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Ana")), "después de 10 minutos vuelve a recibir la lista");
 
+// --- Asignar desde WhatsApp (solo administradores)
+const sR = solDe(R)!;
+await vendedor("v2", "asigna el último prospecto a Carlos");
+afirmar(!sR.vendedor_id && log.at(-1)!.includes("Solo un administrador"), "un vendedor sin permiso no puede asignar");
+config.textos_extra = { ...(config.textos_extra as object), administradores: "v1" };
+marca = log.length;
+await vendedor("v1", "Asigna el último prospecto a ana");
+afirmar(sR.vendedor_id === "v2", `el administrador asigna el último prospecto (${sR.codigo}) a Ana`);
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Ana") && l.includes("[Contacto]")), "Ana recibe la tarjeta del cliente");
+afirmar(log.at(-1)!.includes("quedó asignado a Ana"), "el administrador recibe la confirmación");
+await vendedor("v1", `asigna ${sR.numero} a 5959544763`);
+afirmar(sR.vendedor_id === "v1" && log.at(-1)!.includes("antes lo tenía Ana"), "reasignar por número de prospecto y teléfono del vendedor");
+await vendedor("v1", "asigna el ultimo a Pedro");
+afirmar(log.at(-1)!.includes("No encontré al vendedor"), "vendedor inexistente");
+const ana = tablas["usuarios_perfil"]!.find((u) => u.id === "v2")!;
+afirmar((ana.estado_bot as { ultimo_aviso?: { ok: boolean } }).ultimo_aviso?.ok === true, "se registra el último aviso enviado al vendedor");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

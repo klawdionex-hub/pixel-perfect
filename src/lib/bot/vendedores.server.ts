@@ -24,6 +24,8 @@ type EstadoVendedor = {
   desde?: string;
   /** Última vez que se le envió la lista de prospectos (evita ciclos con respuestas automáticas). */
   ultima_ayuda?: string;
+  /** Resultado del último aviso que el bot intentó enviarle (se muestra en Usuarios). */
+  ultimo_aviso?: { fecha: string; ok: boolean; error?: string };
 };
 
 /** Control interno de avisos por solicitud (columna solicitudes.control_bot). */
@@ -199,6 +201,7 @@ export async function buscarVendedorPorTelefono(db: DB, telefono: string): Promi
  * o la plantilla aprobada si no. Devuelve false si no se pudo enviar.
  */
 async function enviarAVendedor(
+  db: DB,
   canal: Canal,
   v: Vendedor,
   ahora: Date,
@@ -219,11 +222,23 @@ async function enviarAVendedor(
         botones: plantilla.botones,
       });
     }
+    await registrarAviso(db, v, ahora);
     return true;
   } catch (err) {
     console.error(`[vendedores] No se pudo enviar a ${v.nombre}`, err);
+    await registrarAviso(db, v, ahora, err instanceof Error ? err.message : String(err));
     return false;
   }
+}
+
+/** Guarda si el último aviso al vendedor llegó a WhatsApp o el error que dio. */
+async function registrarAviso(db: DB, v: Vendedor, ahora: Date, error?: string) {
+  const estado: EstadoVendedor = {
+    ...((v.estado_bot ?? {}) as EstadoVendedor),
+    ultimo_aviso: { fecha: ahora.toISOString(), ok: !error, ...(error ? { error: error.slice(0, 300) } : {}) },
+  };
+  v.estado_bot = estado as unknown as Json;
+  await db.from("usuarios_perfil").update({ estado_bot: estado as unknown as Json }).eq("id", v.id);
 }
 
 /** Respuesta directa a un vendedor que acaba de escribir (la ventana está abierta). */
@@ -254,7 +269,7 @@ export async function avisarNuevoProspecto(db: DB, canal: Canal, solicitudId: st
     "Los datos de contacto se envían a quien lo tome.",
   ].join("\n");
   for (const v of await vendedoresActivos(db)) {
-    await enviarAVendedor(canal, v, ahora, { tipo: "botones", texto, opciones: botonesTomar(s.id) }, {
+    await enviarAVendedor(db, canal, v, ahora, { tipo: "botones", texto, opciones: botonesTomar(s.id) }, {
       nombre: PLANTILLAS_VENDEDORES.nuevo,
       parametros: [s.codigo ?? "", servicio, zona, marcas(s)],
       botones: [`tomar:${s.id}`, `ver:${s.id}`],
@@ -291,7 +306,7 @@ export async function reenviarMensajeCliente(
   const todos = await vendedoresActivos(db);
   const asignado = o.vendedorId ? todos.filter((v) => v.id === o.vendedorId) : [];
   for (const v of asignado.length ? asignado : todos) {
-    await enviarAVendedor(canal, v, ahora, interactivo, {
+    await enviarAVendedor(db, canal, v, ahora, interactivo, {
       nombre: PLANTILLAS_VENDEDORES.mensajeCliente,
       parametros: [o.contacto.nombre ?? "Sin nombre", o.codigo ?? "-", param(o.contenido, 300), telefonoLegible(tel)],
     });
@@ -311,7 +326,7 @@ async function reenviarSinAsignar(db: DB, canal: Canal, solicitudId: string, con
     "El prospecto sigue sin asignar. Tómelo para recibir sus datos de contacto.",
   ].join("\n");
   for (const v of await vendedoresActivos(db)) {
-    await enviarAVendedor(canal, v, ahora, { tipo: "botones", texto, opciones: botonesTomar(s.id) }, {
+    await enviarAVendedor(db, canal, v, ahora, { tipo: "botones", texto, opciones: botonesTomar(s.id) }, {
       nombre: PLANTILLAS_VENDEDORES.mensajeSinAsignar,
       parametros: [s.codigo ?? "", servicio, zona, param(contenido, 300)],
       botones: [`tomar:${s.id}`, `ver:${s.id}`],
@@ -389,8 +404,20 @@ async function datosCompletos(db: DB, s: SolicitudConContacto): Promise<Salida[]
 // ---------------------------------------------------------------- mensajes de vendedores
 
 async function guardarEstadoVendedor(db: DB, v: Vendedor, estado: EstadoVendedor) {
-  v.estado_bot = estado as unknown as Json;
-  await db.from("usuarios_perfil").update({ estado_bot: estado as unknown as Json }).eq("id", v.id);
+  const previo = (v.estado_bot ?? {}) as EstadoVendedor;
+  const ultimo = previo.ultimo_aviso ?? estado.ultimo_aviso;
+  const nuevo: EstadoVendedor = { ...estado, ...(ultimo ? { ultimo_aviso: ultimo } : {}) };
+  v.estado_bot = nuevo as unknown as Json;
+  await db.from("usuarios_perfil").update({ estado_bot: nuevo as unknown as Json }).eq("id", v.id);
+}
+
+/** Tarjeta de contacto y datos completos del prospecto para el vendedor asignado. */
+async function entregarDatos(db: DB, canal: Canal, v: Vendedor, s: SolicitudConContacto) {
+  const c = s.contactos;
+  if (c?.telefono && !c.telefono.startsWith("sim-")) {
+    await responder(canal, v, { tipo: "contacto", nombre: `${s.codigo} ${c.nombre ?? ""}`.trim(), telefono: c.telefono });
+  }
+  for (const salida of await datosCompletos(db, s)) await responder(canal, v, salida);
 }
 
 async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, ahora: Date) {
@@ -408,22 +435,19 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
   }
   if (!tomada) {
     if (s.vendedor_id === v.id) {
-      await responder(canal, v, { tipo: "texto", texto: `El prospecto ${s.codigo} ya está asignado a usted.` });
+      await responder(canal, v, { tipo: "texto", texto: `El prospecto ${s.codigo} está asignado a usted. Le envío los datos del cliente.` });
+      await entregarDatos(db, canal, v, s);
       return;
     }
     const { data: otro } = await db.from("usuarios_perfil").select("nombre").eq("id", s.vendedor_id ?? "").maybeSingle();
     await responder(canal, v, { tipo: "texto", texto: `Este prospecto ya fue tomado por ${otro?.nombre ?? "otro vendedor"}.` });
     return;
   }
-  const c = s.contactos;
   await responder(canal, v, {
     tipo: "texto",
     texto: `Listo, el prospecto ${s.codigo} quedó asignado a usted. Le envío la tarjeta de contacto para que la guarde y los datos completos.`,
   });
-  if (c?.telefono && !c.telefono.startsWith("sim-")) {
-    await responder(canal, v, { tipo: "contacto", nombre: `${s.codigo} ${c.nombre ?? ""}`.trim(), telefono: c.telefono });
-  }
-  for (const salida of await datosCompletos(db, s)) await responder(canal, v, salida);
+  await entregarDatos(db, canal, v, s);
 
   // Avisa a los demás que ya no está disponible.
   const servicio = await nombreServicio(db, s);
@@ -431,6 +455,7 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
   for (const otro of await vendedoresActivos(db)) {
     if (otro.id === v.id) continue;
     await enviarAVendedor(
+      db,
       canal,
       otro,
       ahora,
@@ -610,6 +635,13 @@ export async function procesarMensajeVendedor(
   // Botones de plantilla sin payload: llegan solo con el texto del botón.
   const texto = (entrada.texto ?? "").trim();
 
+  // Orden del administrador: "asigna el último prospecto a Luis", "asigna 0025 a 5512345678".
+  const orden = ORDEN_ASIGNAR.exec(texto);
+  if (orden) {
+    const quien = (orden[3] ?? "").replace(/[.,;!?]+$/, "").trim();
+    return asignarPorOrden(db, canal, v, orden[1] ? null : Number(orden[2]), quien, ahora);
+  }
+
   const estado = (v.estado_bot ?? {}) as EstadoVendedor;
   const vigente = estado.esperando && estado.solicitud_id && horasDesde(estado.desde, ahora) < 24;
   if (vigente && texto) {
@@ -657,6 +689,108 @@ export async function procesarMensajeVendedor(
   if (horasDesde(estado.ultima_ayuda, ahora) < 1 / 6) return;
   await guardarEstadoVendedor(db, v, { ...estado, ultima_ayuda: ahora.toISOString() });
   return enviarPendientes(db, canal, v);
+}
+
+// ---------------------------------------------------------------- asignar desde WhatsApp
+
+const ORDEN_ASIGNAR =
+  /^asign(?:a|ar|ale|e)\s+(?:el\s+|al\s+)?(?:prospecto\s+)?(?:(u|ú)ltimo|#?(?:\d+-\d+-)?(\d{1,6}))\s+(?:prospecto\s+)?(?:a|al|para|con)\s+(.+)$/i;
+
+const sinAcentos = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+/** Usuarios que pueden dar órdenes al bot (se activan en el panel, página Usuarios). */
+export async function esAdministrador(db: DB, v: Pick<Vendedor, "id">) {
+  const { data } = await db.from("configuracion").select("textos_extra").eq("id", true).maybeSingle();
+  const extra = (data?.textos_extra ?? {}) as Record<string, string>;
+  return String(extra["administradores"] ?? "").split(",").includes(v.id);
+}
+
+/** Busca un vendedor activo por número (últimos dígitos) o por nombre. */
+async function buscarDestino(db: DB, quien: string): Promise<{ v: Vendedor & { whatsapp: string } } | { error: string }> {
+  const todos = await vendedoresActivos(db);
+  const digitos = quien.replace(/\D/g, "");
+  let c = digitos.length >= 4 ? todos.filter((v) => v.whatsapp.replace(/\D/g, "").endsWith(digitos.slice(-10))) : [];
+  if (!c.length) {
+    const q = sinAcentos(quien);
+    c = todos.filter((v) => sinAcentos(v.nombre) === q);
+    if (!c.length) c = todos.filter((v) => sinAcentos(v.nombre).startsWith(q) || sinAcentos(v.nombre).split(/\s+/).includes(q));
+  }
+  if (c.length === 1) return { v: c[0]! };
+  if (c.length > 1) return { error: `Hay varios vendedores que coinciden con "${quien}": ${c.map((v) => v.nombre).join(", ")}. Escriba el nombre completo o su número.` };
+  return { error: `No encontré al vendedor "${quien}". Vendedores activos: ${todos.map((v) => v.nombre).join(", ") || "ninguno"}.` };
+}
+
+async function asignarPorOrden(db: DB, canal: Canal, admin: Vendedor, numero: number | null, quien: string, ahora: Date) {
+  if (!(await esAdministrador(db, admin))) {
+    return responder(canal, admin, {
+      tipo: "texto",
+      texto: "Solo un administrador puede asignar prospectos desde WhatsApp. Se activa en el panel, en la página Usuarios.",
+    });
+  }
+  const base = db.from("solicitudes").select("id, codigo, vendedor_id, etapa").eq("es_ejemplo", false);
+  const { data: sol } = numero === null
+    ? await base.order("creada_en", { ascending: false }).limit(1).maybeSingle()
+    : await base.eq("numero", numero).maybeSingle();
+  if (!sol) return responder(canal, admin, { tipo: "texto", texto: numero === null ? "No hay prospectos registrados." : `No encontré el prospecto número ${numero}.` });
+  const d = await buscarDestino(db, quien);
+  if ("error" in d) return responder(canal, admin, { tipo: "texto", texto: d.error });
+  const destino = d.v;
+  if (sol.vendedor_id === destino.id) {
+    return responder(canal, admin, { tipo: "texto", texto: `El prospecto ${sol.codigo} ya está asignado a ${destino.nombre}.` });
+  }
+  const { data: anterior } = sol.vendedor_id
+    ? await db.from("usuarios_perfil").select("nombre").eq("id", sol.vendedor_id).maybeSingle()
+    : { data: null };
+  await db
+    .from("solicitudes")
+    .update({ vendedor_id: destino.id, tomada_en: ahora.toISOString(), ...(sol.etapa === 5 ? { etapa: 1 } : {}) })
+    .eq("id", sol.id);
+  const s = await cargarSolicitud(db, sol.id);
+  if (!s) return;
+  const servicio = await nombreServicio(db, s);
+  const zona = zonaDe(s);
+
+  // Al vendedor: los datos de inmediato si su ventana de 24 h está abierta; si no, la plantilla
+  // de nuevo prospecto, y al pulsar cualquiera de sus botones recibe los datos.
+  let entregado = false;
+  const ventana = canal.siempreVentana || ventanaAbierta(destino, ahora);
+  if (ventana) {
+    await responder(canal, destino, {
+      tipo: "texto",
+      texto: `${admin.nombre} le asignó el prospecto ${s.codigo} (${servicio}, ${zona}). Le envío la tarjeta de contacto y los datos completos.`,
+    });
+    await entregarDatos(db, canal, destino, s);
+    entregado = true;
+  } else {
+    entregado = await enviarAVendedor(db, canal, destino, ahora, { tipo: "texto", texto: "" }, {
+      nombre: PLANTILLAS_VENDEDORES.nuevo,
+      parametros: [s.codigo ?? "", servicio, zona, `Asignado por ${admin.nombre}`],
+      botones: [`ver:${s.id}`, `ver:${s.id}`],
+    });
+  }
+
+  for (const otro of await vendedoresActivos(db)) {
+    if (otro.id === destino.id || otro.id === admin.id) continue;
+    await enviarAVendedor(
+      db,
+      canal,
+      otro,
+      ahora,
+      { tipo: "texto", texto: `El prospecto ${s.codigo} (${servicio}, ${zona}) fue asignado a ${destino.nombre}. Ya no está disponible para tomarlo.` },
+      { nombre: PLANTILLAS_VENDEDORES.asignado, parametros: [s.codigo ?? "", servicio, zona, destino.nombre] },
+    );
+  }
+
+  const partes = [`Listo. El prospecto ${s.codigo} quedó asignado a ${destino.nombre}${anterior ? ` (antes lo tenía ${anterior.nombre})` : ""}.`];
+  if (destino.id !== admin.id) {
+    if (!entregado) {
+      partes.push(
+        `No se le pudo enviar el aviso por WhatsApp a ${destino.nombre}. Lo más probable es que no le haya escrito al bot en las últimas 24 horas y aún falten las plantillas de Meta. Pídale que le escriba "hola" a este número y después escriba aquí otra vez la orden de asignar.`,
+      );
+    } else if (ventana) partes.push("Ya se le enviaron los datos del cliente.");
+    else partes.push("Se le envió el aviso; al pulsar cualquiera de sus botones recibirá los datos del cliente.");
+  }
+  return responder(canal, admin, { tipo: "texto", texto: partes.join(" ") });
 }
 
 // ---------------------------------------------------------------- tareas programadas
@@ -739,7 +873,7 @@ export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date())
       opciones: botonesTomar(s.id),
     };
     for (const v of vendedores) {
-      await enviarAVendedor(canal, v, ahora, interactivo, {
+      await enviarAVendedor(db, canal, v, ahora, interactivo, {
         nombre: PLANTILLAS_VENDEDORES.recordatorio,
         parametros: [s.codigo ?? "", servicio, zona, hace],
         botones: [`tomar:${s.id}`, `ver:${s.id}`],
@@ -765,7 +899,7 @@ export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date())
     if (!toca) continue;
     const v = vendedores.find((x) => x.id === s.vendedor_id);
     if (!v) continue;
-    await enviarAVendedor(canal, v, ahora, preguntaSeguimiento(s), {
+    await enviarAVendedor(db, canal, v, ahora, preguntaSeguimiento(s), {
       nombre: PLANTILLAS_VENDEDORES.seguimiento,
       parametros: [s.codigo ?? "", s.contactos?.nombre ?? "Sin nombre", s.contactos?.municipio ?? "sin municipio"],
       botones: RESULTADOS.map((r) => `res:${r.clave}:${s.id}`),

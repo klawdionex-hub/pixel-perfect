@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
-import { claves, traerUsuarios, type UsuarioPerfil } from "@/lib/datos";
+import { claves, traerConfiguracion, traerUsuarios, type UsuarioPerfil } from "@/lib/datos";
 import { crearUsuario } from "@/lib/usuarios.functions";
 import { cabeza } from "@/lib/cabeza";
 
@@ -48,6 +48,9 @@ function traducirError(m: string) {
 function Pagina() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: claves.usuarios, queryFn: traerUsuarios });
+  const config = useQuery({ queryKey: claves.configuracion, queryFn: traerConfiguracion });
+  const extra = (config.data?.["textos_extra"] ?? {}) as Record<string, string>;
+  const administradores = String(extra["administradores"] ?? "").split(",").filter(Boolean);
   const crear = useServerFn(crearUsuario);
   const [f, setF] = useState({ correo: "", contrasena: "", nombre: "", whatsapp: "", es_vendedor: true });
   const [enviando, setEnviando] = useState(false);
@@ -67,7 +70,17 @@ function Pagina() {
     }
   }
 
-  async function actualizar(id: string, cambios: Partial<UsuarioPerfil>) {
+  async function cambiarAdministrador(id: string, si: boolean) {
+    const lista = si ? [...new Set([...administradores, id])] : administradores.filter((x) => x !== id);
+    const { error } = await supabase
+      .from("configuracion")
+      .update({ textos_extra: { ...extra, administradores: lista.join(",") } } as never)
+      .eq("id", true);
+    if (error) { toast.error(error.message); return; }
+    qc.invalidateQueries({ queryKey: claves.configuracion });
+  }
+
+  async function actualizar(id: string, cambios: Partial<Omit<UsuarioPerfil, "estado_bot">>) {
     const { error } = await supabase.from("usuarios_perfil").update(cambios).eq("id", id);
     if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: claves.usuarios });
@@ -107,18 +120,43 @@ function Pagina() {
           <div className="flex items-center gap-2"><Switch checked={f.es_vendedor} onCheckedChange={(v) => setF({ ...f, es_vendedor: v })} /><Label>Es vendedor</Label></div>
           <Button className="w-full" disabled={enviando} onClick={alta}>Crear usuario</Button>
         </div>
-        <Tabla encabezados={["Nombre", "WhatsApp", "Vendedor", "Resumen semanal", "Activo"]}>
+        <Tabla encabezados={["Nombre", "WhatsApp", "Vendedor", "Administrador", "Resumen semanal", "Activo", "Último aviso por WhatsApp"]}>
           {(q.data ?? []).map((u) => (
             <tr key={u.id}>
               <Celda><Input defaultValue={u.nombre} onBlur={(e) => e.target.value !== u.nombre && actualizar(u.id, { nombre: e.target.value })} /></Celda>
               <Celda><Input defaultValue={u.whatsapp ?? ""} onBlur={(e) => actualizar(u.id, { whatsapp: e.target.value || null })} /></Celda>
               <Celda><Switch checked={u.es_vendedor} onCheckedChange={(v) => actualizar(u.id, { es_vendedor: v })} /></Celda>
+              <Celda>
+                <Switch
+                  checked={administradores.includes(u.id)}
+                  disabled={!config.data}
+                  onCheckedChange={(v) => void cambiarAdministrador(u.id, v)}
+                />
+              </Celda>
               <Celda><Switch checked={u.recibe_resumen_semanal} onCheckedChange={(v) => actualizar(u.id, { recibe_resumen_semanal: v })} /></Celda>
               <Celda><Switch checked={u.activo} onCheckedChange={(v) => actualizar(u.id, { activo: v })} /></Celda>
+              <Celda><UltimoAviso estado={u.estado_bot} /></Celda>
             </tr>
           ))}
         </Tabla>
       </div>
     </div>
+  );
+}
+
+/** Si el último aviso del bot a este usuario llegó a WhatsApp o qué error dio. */
+function UltimoAviso({ estado }: { estado: unknown }) {
+  const a = (estado as { ultimo_aviso?: { fecha: string; ok: boolean; error?: string } } | null)?.ultimo_aviso;
+  if (!a) return <span className="text-xs text-muted-foreground">Sin avisos aún</span>;
+  const fecha = new Date(a.fecha).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" });
+  if (a.ok) return <span className="text-xs text-emerald-700">Enviado · {fecha}</span>;
+  return (
+    <span className="text-xs text-destructive" title={a.error}>
+      Falló · {fecha}
+      <br />
+      {/template|132001|does not exist/i.test(a.error ?? "")
+        ? "Faltan las plantillas en Meta y no ha escrito al bot en 24 h."
+        : (a.error ?? "").slice(0, 90)}
+    </span>
   );
 }

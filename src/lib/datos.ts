@@ -58,6 +58,7 @@ export type UsuarioPerfil = {
   es_vendedor: boolean;
   recibe_resumen_semanal: boolean;
   activo: boolean;
+  estado_bot?: unknown;
 };
 
 function revisar<T>(res: { data: T | null; error: { message: string } | null }): T {
