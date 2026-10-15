@@ -1,6 +1,6 @@
 // Pruebas del bot con base de datos falsa. Ejecutar:  npm run prueba:bot
 import { procesarMensajeCliente, procesarRecordatorios, type Canal } from "@/lib/bot/motor.server";
-import { procesarMensajeVendedor } from "@/lib/bot/vendedores.server";
+import { procesarMensajeVendedor, tareasVendedores } from "@/lib/bot/vendedores.server";
 import { textoDeSalida, type Salida } from "@/lib/bot/salida";
 import { crearBD } from "./bd-falsa";
 
@@ -141,6 +141,20 @@ await vendedor("v1", "asigna el ultimo a Pedro");
 afirmar(log.at(-1)!.includes("No encontré al vendedor"), "vendedor inexistente");
 const ana = tablas["usuarios_perfil"]!.find((u) => u.id === "v2")!;
 afirmar((ana.estado_bot as { ultimo_aviso?: { ok: boolean } }).ultimo_aviso?.ok === true, "se registra el último aviso enviado al vendedor");
+
+// --- Renovar la ventana de 24 h del vendedor
+
+const carlos = tablas["usuarios_perfil"]!.find((x) => x.id === "v1")!;
+reloj.ahora = new Date("2026-10-15T18:00:00Z"); // 12:00 en Ciudad de México
+carlos.ultimo_mensaje_wa = new Date(reloj.ahora.getTime() - 21 * 3600000).toISOString();
+marca = log.length;
+await tareasVendedores(db, canal, reloj.ahora);
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Carlos") && l.includes("Seguir recibiendo")), "pide renovar la ventana antes de que venza");
+marca = log.length;
+await tareasVendedores(db, canal, new Date(reloj.ahora.getTime() + 10 * 60000));
+afirmar(!log.slice(marca).some((l) => l.includes("Seguir recibiendo")), "solo un aviso de renovación por ventana");
+await vendedor("v1", "Seguir recibiendo", "renovar");
+afirmar(log.at(-1)!.includes("seguirá recibiendo") && carlos.ultimo_mensaje_wa === reloj.ahora.toISOString(), "al pulsar el botón se renueva la ventana");
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

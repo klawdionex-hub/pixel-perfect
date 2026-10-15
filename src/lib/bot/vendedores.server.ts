@@ -26,6 +26,8 @@ type EstadoVendedor = {
   ultima_ayuda?: string;
   /** Resultado del último aviso que el bot intentó enviarle (se muestra en Usuarios). */
   ultimo_aviso?: { fecha: string; ok: boolean; error?: string };
+  /** ultimo_mensaje_wa para el que ya se pidió renovar la ventana (un aviso por ventana). */
+  aviso_ventana?: string;
 };
 
 /** Control interno de avisos por solicitud (columna solicitudes.control_bot). */
@@ -601,6 +603,9 @@ export async function procesarMensajeVendedor(
 
   const id = entrada.opcionId ?? "";
   const [accion, a, b] = id.split(":");
+  if (accion === "renovar") {
+    return responder(canal, v, { tipo: "texto", texto: "Listo, seguirá recibiendo los avisos de prospectos con todos sus botones." });
+  }
   if (accion === "tomar" && a) return tomar(db, canal, v, a, ahora);
   if (accion === "ver" && a) {
     const s = await cargarSolicitud(db, a);
@@ -819,8 +824,37 @@ function corteSabado(ahora: Date): Date | null {
   return null;
 }
 
+/**
+ * Antes de que se cierre la ventana de 24 h de un vendedor, le pide que pulse un botón para renovarla.
+ * Es un mensaje normal (gratis) y mientras la ventana siga abierta los avisos no necesitan plantillas.
+ * Se envía de 7:00 a 22:00; si la ventana vence de madrugada, se adelanta para no despertarlo.
+ */
+async function pedirRenovarVentana(db: DB, canal: Canal, ahora: Date) {
+  const { hora } = fechaLocal(ahora);
+  if (hora < 7 || hora >= 22) return 0;
+  let enviados = 0;
+  for (const v of await vendedoresActivos(db)) {
+    if (!v.ultimo_mensaje_wa) continue;
+    const horas = horasDesde(v.ultimo_mensaje_wa, ahora);
+    if (horas >= 23 || horas < 12) continue;
+    const vence = fechaLocal(new Date(new Date(v.ultimo_mensaje_wa).getTime() + 23 * 3600000)).hora;
+    const venceDeNoche = vence < 7 || vence >= 22;
+    if (horas < 20 && !venceDeNoche) continue;
+    const estado = (v.estado_bot ?? {}) as EstadoVendedor;
+    if (estado.aviso_ventana === v.ultimo_mensaje_wa) continue;
+    await guardarEstadoVendedor(db, v, { ...estado, aviso_ventana: v.ultimo_mensaje_wa });
+    await responder(canal, v, {
+      tipo: "botones",
+      texto: `${v.nombre}, para seguir recibiendo los avisos de prospectos con todos sus datos y botones, pulse el botón de abajo.`,
+      opciones: [{ id: "renovar", titulo: "Seguir recibiendo" }],
+    });
+    enviados++;
+  }
+  return enviados;
+}
+
 export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date()) {
-  const resumen = { recordatoriosSinTomar: 0, seguimientos: 0, archivadas: 0 };
+  const resumen = { recordatoriosSinTomar: 0, seguimientos: 0, archivadas: 0, renovaciones: 0 };
   // Sin la columna control_bot (migración de la fase 3 sin aplicar) no se puede llevar la cuenta
   // de avisos y se repetirían en cada ejecución; en ese caso no se hace nada.
   const { error: sinMigracion } = await db.from("solicitudes").select("control_bot").limit(1);
@@ -848,6 +882,8 @@ export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date())
       .select("id");
     resumen.archivadas = arch?.length ?? 0;
   }
+
+  resumen.renovaciones = await pedirRenovarVentana(db, canal, ahora);
 
   if (!enHorarioLaboral(ahora)) return resumen;
   const vendedores = await vendedoresActivos(db);
