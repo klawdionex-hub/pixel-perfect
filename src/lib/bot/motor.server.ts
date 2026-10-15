@@ -859,3 +859,19 @@ export async function procesarRecordatorios(db: DB, canal: Canal, ahora = new Da
     return { ...resumen, recordatoriosSinTomar: 0, seguimientos: 0, archivadas: 0 };
   }
 }
+
+/**
+ * Desde el panel: crea el prospecto (incompleto) de un contacto que no terminó la encuesta
+ * y avisa a los vendedores. Si ya tiene un prospecto abierto, solo lo devuelve.
+ */
+export async function pasarContactoAVendedores(db: DB, canal: Canal, contactoId: string, ahora = new Date()) {
+  const { data: contacto } = await db.from("contactos").select("*").eq("id", contactoId).maybeSingle();
+  if (!contacto) throw new Error("No se encontró el contacto.");
+  const ses = await cargarSesion(db, canal, contacto as Contacto, ahora);
+  const abierta = await solicitudAbierta(ses);
+  if (abierta) return { codigo: abierta.codigo, yaExistia: true };
+  await pasarAAsesor(ses, true);
+  await guardarEstado(ses);
+  const { data } = await db.from("solicitudes").select("codigo").eq("id", ses.estado.solicitud_id ?? "").maybeSingle();
+  return { codigo: data?.codigo ?? null, yaExistia: false };
+}

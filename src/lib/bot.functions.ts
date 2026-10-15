@@ -242,3 +242,13 @@ export const estadoIntegracion = createServerFn({ method: "GET" })
       CRON: hay("LOVABLE_CRON_SECRET") || hay("BOT_CRON_SECRET"),
     };
   });
+
+/** Pasa a los vendedores un contacto que no terminó la encuesta (crea su prospecto incompleto). */
+export const pasarContactoAVendedores = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ contactoId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const motor = await import("@/lib/bot/motor.server");
+    const { canalWhatsApp } = await import("@/lib/bot/canal.server");
+    return motor.pasarContactoAVendedores(context.supabase, canalWhatsApp, data.contactoId);
+  });

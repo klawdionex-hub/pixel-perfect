@@ -1,5 +1,5 @@
 // Pruebas del bot con base de datos falsa. Ejecutar:  npm run prueba:bot
-import { procesarMensajeCliente, procesarRecordatorios, type Canal } from "@/lib/bot/motor.server";
+import { pasarContactoAVendedores, procesarMensajeCliente, procesarRecordatorios, type Canal } from "@/lib/bot/motor.server";
 import { procesarMensajeVendedor, tareasVendedores } from "@/lib/bot/vendedores.server";
 import { textoDeSalida, type Salida } from "@/lib/bot/salida";
 import { crearBD } from "./bd-falsa";
@@ -155,6 +155,16 @@ await tareasVendedores(db, canal, new Date(reloj.ahora.getTime() + 10 * 60000));
 afirmar(!log.slice(marca).some((l) => l.includes("Seguir recibiendo")), "solo un aviso de renovación por ventana");
 await vendedor("v1", "Seguir recibiendo", "renovar");
 afirmar(log.at(-1)!.includes("seguirá recibiendo") && carlos.ultimo_mensaje_wa === reloj.ahora.toISOString(), "al pulsar el botón se renueva la ventana");
+
+// --- Pasar desde el panel a un contacto que no terminó la encuesta
+const sinTerminarTel = "+525595555555";
+await cliente(sinTerminarTel, "Hola");
+const contactoST = tablas["contactos"]!.find((c) => c.telefono === sinTerminarTel)!;
+marca = log.length;
+const pasado = await pasarContactoAVendedores(db, canal, contactoST.id as string, reloj.ahora);
+afirmar(!pasado.yaExistia && solDe(sinTerminarTel)?.completa === false, `contacto sin encuesta pasa a vendedores (${pasado.codigo})`);
+afirmar(log.slice(marca).filter((l) => l.startsWith("VENDEDOR") && l.includes("Incompleta")).length >= 2, "los vendedores reciben el aviso como incompleta");
+afirmar((await pasarContactoAVendedores(db, canal, contactoST.id as string, reloj.ahora)).yaExistia, "no se duplica el prospecto");
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;
