@@ -93,7 +93,7 @@ export const DEFINICIONES_PLANTILLAS = [
     components: [
       {
         type: "BODY",
-        text: 'El cliente {{1}} del prospecto {{2}} envió un mensaje:\n"{{3}}"\nPuede responderle desde su WhatsApp al número {{4}}.',
+        text: "Tiene un mensaje nuevo de un cliente que ya está asignado a usted.\n\nCliente: {{1}}\nProspecto: {{2}}\nMensaje: {{3}}\nTeléfono del cliente: {{4}}\n\nLe sugerimos responderle a la brevedad desde su WhatsApp personal para dar seguimiento a su solicitud.",
         example: { body_text: [["Juan Pérez", "3-1-0045", "Buen día, ¿a qué hora vienen?", "+52 595 123 4567"]] },
       },
     ],
