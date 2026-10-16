@@ -220,6 +220,18 @@ export function valorEditable(config: ConfigBot, clave: ClaveTexto): string {
   return def.porDefecto;
 }
 
+/** Hora local de Ciudad de México (0 a 23). */
+export function horaMexico(fecha: Date): number {
+  const h = new Intl.DateTimeFormat("en-US", { timeZone: "America/Mexico_City", hour: "numeric", hour12: false }).format(fecha);
+  return Number(h) % 24;
+}
+
+/** Horario en que se puede escribir a clientes y avisar de prospectos incompletos: 8:00 a 21:00. */
+export function horaDeEscribirClientes(fecha: Date): boolean {
+  const h = horaMexico(fecha);
+  return h >= 8 && h < 21;
+}
+
 // Horario laboral: lunes a viernes 8:00–17:00, sábado 8:00–14:00 (America/Mexico_City).
 export function enHorarioLaboral(fecha: Date): boolean {
   const partes = new Intl.DateTimeFormat("en-US", {

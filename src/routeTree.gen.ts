@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as PrivacidadRouteImport } from './routes/privacidad'
+import { Route as RestablecerRouteImport } from './routes/restablecer'
 import { Route as AuthenticatedCampanasRouteImport } from './routes/_authenticated/campanas'
 import { Route as AuthenticatedConfiguracionRouteImport } from './routes/_authenticated/configuracion'
 import { Route as AuthenticatedContactosRouteImport } from './routes/_authenticated/contactos'
@@ -44,6 +45,11 @@ const AuthRoute = AuthRouteImport.update({
 const PrivacidadRoute = PrivacidadRouteImport.update({
   id: '/privacidad',
   path: '/privacidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RestablecerRoute = RestablecerRouteImport.update({
+  id: '/restablecer',
+  path: '/restablecer',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedCampanasRoute = AuthenticatedCampanasRouteImport.update({
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/privacidad': typeof PrivacidadRoute
+  '/restablecer': typeof RestablecerRoute
   '/campanas': typeof AuthenticatedCampanasRoute
   '/configuracion': typeof AuthenticatedConfiguracionRoute
   '/contactos': typeof AuthenticatedContactosRoute
@@ -137,6 +144,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/privacidad': typeof PrivacidadRoute
+  '/restablecer': typeof RestablecerRoute
   '/campanas': typeof AuthenticatedCampanasRoute
   '/configuracion': typeof AuthenticatedConfiguracionRoute
   '/contactos': typeof AuthenticatedContactosRoute
@@ -157,6 +165,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/privacidad': typeof PrivacidadRoute
+  '/restablecer': typeof RestablecerRoute
   '/_authenticated/campanas': typeof AuthenticatedCampanasRoute
   '/_authenticated/configuracion': typeof AuthenticatedConfiguracionRoute
   '/_authenticated/contactos': typeof AuthenticatedContactosRoute
@@ -177,6 +186,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/privacidad'
+    | '/restablecer'
     | '/campanas'
     | '/configuracion'
     | '/contactos'
@@ -195,6 +205,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/privacidad'
+    | '/restablecer'
     | '/campanas'
     | '/configuracion'
     | '/contactos'
@@ -214,6 +225,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/privacidad'
+    | '/restablecer'
     | '/_authenticated/campanas'
     | '/_authenticated/configuracion'
     | '/_authenticated/contactos'
@@ -234,6 +246,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PrivacidadRoute: typeof PrivacidadRoute
+  RestablecerRoute: typeof RestablecerRoute
   ApiCronBotRoute: typeof ApiCronBotRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
 }
@@ -266,6 +279,13 @@ declare module '@tanstack/react-router' {
       path: '/privacidad'
       fullPath: '/privacidad'
       preLoaderRoute: typeof PrivacidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/restablecer': {
+      id: '/restablecer'
+      path: '/restablecer'
+      fullPath: '/restablecer'
+      preLoaderRoute: typeof RestablecerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/campanas': {
@@ -398,6 +418,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PrivacidadRoute: PrivacidadRoute,
+  RestablecerRoute: RestablecerRoute,
   ApiCronBotRoute: ApiCronBotRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
 }

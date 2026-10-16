@@ -166,5 +166,27 @@ afirmar(!pasado.yaExistia && solDe(sinTerminarTel)?.completa === false, `contact
 afirmar(log.slice(marca).filter((l) => l.startsWith("VENDEDOR") && l.includes("Incompleta")).length >= 2, "los vendedores reciben el aviso como incompleta");
 afirmar((await pasarContactoAVendedores(db, canal, contactoST.id as string, reloj.ahora)).yaExistia, "no se duplica el prospecto");
 
+// --- De noche no se escribe a clientes; se retoma a las 8:00
+const N = "+525594444444";
+reloj.ahora = new Date("2026-10-16T04:00:00Z"); // jueves 22:00 CDMX
+await cliente(N, "Hola");
+marca = log.length;
+await procesarRecordatorios(db, canal, new Date("2026-10-16T07:30:00Z")); // 1:30
+afirmar(!log.slice(marca).some((l) => l.startsWith("BOT>")), "de noche no se mandan recordatorios a clientes");
+marca = log.length;
+await procesarRecordatorios(db, canal, new Date("2026-10-16T14:30:00Z")); // 8:30
+afirmar(log.slice(marca).some((l) => l.startsWith("BOT>")), "a las 8:00 se retoman los recordatorios");
+
+// --- Resumen del día a las 17:00
+reloj.ahora = new Date("2026-10-16T23:10:00Z"); // viernes 17:10 CDMX
+marca = log.length;
+await tareasVendedores(db, canal, reloj.ahora);
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR") && /esumen del d|resumen_del_dia/.test(l)), "resumen del día a los vendedores");
+marca = log.length;
+await tareasVendedores(db, canal, new Date(reloj.ahora.getTime() + 600000));
+afirmar(!log.slice(marca).some((l) => /esumen del d|resumen_del_dia/.test(l)), "el resumen se manda una sola vez al día");
+await vendedor("v1", "Ver la lista", "pendientes");
+afirmar(log.at(-1)!.includes("sin vendedor"), "el botón Ver la lista muestra los prospectos sin vendedor");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

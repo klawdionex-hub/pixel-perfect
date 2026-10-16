@@ -48,6 +48,7 @@ export const PLANTILLAS_VENDEDORES = {
   mensajeCliente: "afpam_mensaje_de_cliente",
   mensajeSinAsignar: "afpam_mensaje_sin_asignar",
   asignado: "afpam_prospecto_asignado",
+  resumenDia: "afpam_resumen_del_dia",
 } as const;
 
 /** Definiciones para registrarlas en Meta (idioma es_MX, categoría UTILITY). */
@@ -117,6 +118,17 @@ export const DEFINICIONES_PLANTILLAS = [
         text: "El prospecto {{1}} ({{2}}, {{3}}) ya fue asignado a {{4}}. Ya no está disponible para tomarlo.",
         example: { body_text: [["3-1-0045", "Elevadizo con paneles", "Texcoco", "Carlos"]] },
       },
+    ],
+  },
+  {
+    name: PLANTILLAS_VENDEDORES.resumenDia,
+    components: [
+      {
+        type: "BODY",
+        text: "Resumen del día de AFPAM Texcoco.\nProspectos que siguen sin vendedor: {{1}}\nEl más antiguo es el {{2}}.\n\nPulse el botón para ver la lista y tomar alguno.",
+        example: { body_text: [["3", "3-1-0045"]] },
+      },
+      { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Ver la lista" }] },
     ],
   },
 ];
@@ -603,6 +615,7 @@ export async function procesarMensajeVendedor(
 
   const id = entrada.opcionId ?? "";
   const [accion, a, b] = id.split(":");
+  if (accion === "pendientes") return enviarSinAsignar(db, canal, v);
   if (accion === "renovar") {
     return responder(canal, v, { tipo: "texto", texto: "Listo, seguirá recibiendo los avisos de prospectos con todos sus botones." });
   }
@@ -639,6 +652,7 @@ export async function procesarMensajeVendedor(
 
   // Botones de plantilla sin payload: llegan solo con el texto del botón.
   const texto = (entrada.texto ?? "").trim();
+  if (/^ver la lista$/i.test(texto)) return enviarSinAsignar(db, canal, v);
 
   // Orden del administrador: "asigna el último prospecto a Luis", "asigna 0025 a 5512345678".
   const orden = ORDEN_ASIGNAR.exec(texto);
@@ -853,8 +867,64 @@ async function pedirRenovarVentana(db: DB, canal: Canal, ahora: Date) {
   return enviados;
 }
 
+async function prospectosSinAsignar(db: DB) {
+  const { data } = await db
+    .from("solicitudes")
+    .select("*, contactos(*)")
+    .eq("etapa", 1)
+    .is("vendedor_id", null)
+    .eq("es_ejemplo", false)
+    .order("creada_en", { ascending: true });
+  return (data ?? []) as SolicitudConContacto[];
+}
+
+/** Lista de prospectos sin vendedor, con opción de ver cada uno y tomarlo. */
+async function enviarSinAsignar(db: DB, canal: Canal, v: Vendedor) {
+  const lista = await prospectosSinAsignar(db);
+  if (!lista.length) return responder(canal, v, { tipo: "texto", texto: "En este momento todos los prospectos tienen vendedor." });
+  const servicios = await Promise.all(lista.slice(0, 10).map((s) => nombreServicio(db, s)));
+  return responder(canal, v, {
+    tipo: "lista",
+    texto: `Hay ${lista.length} prospecto(s) sin vendedor${lista.length > 10 ? "; estos son los 10 más antiguos" : ""}. Elija uno para ver sus detalles y tomarlo.`,
+    boton: "Ver prospectos",
+    opciones: lista.slice(0, 10).map(
+      (s, i): Opcion => ({ id: `ver:${s.id}`, titulo: s.codigo ?? "", descripcion: `${servicios[i]} · ${zonaDe(s)}`.slice(0, 72) }),
+    ),
+  });
+}
+
+/**
+ * Resumen al final del día (lunes a viernes 17:00, sábado 14:00): cuántos prospectos siguen sin vendedor.
+ * Se envía una sola vez por día; se marca en configuracion.textos_extra.resumen_dia_enviado.
+ */
+async function resumenDelDia(db: DB, canal: Canal, ahora: Date) {
+  const { dia, semana, hora } = fechaLocal(ahora);
+  if (semana === "Sun") return 0;
+  if (hora < (semana === "Sat" ? 14 : 17) || hora >= 21) return 0;
+  const { data: config } = await db.from("configuracion").select("textos_extra").eq("id", true).maybeSingle();
+  const extra = (config?.textos_extra ?? {}) as Record<string, string>;
+  if (extra["resumen_dia_enviado"] === dia) return 0;
+  await db.from("configuracion").update({ textos_extra: { ...extra, resumen_dia_enviado: dia } }).eq("id", true);
+  const lista = await prospectosSinAsignar(db);
+  if (!lista.length) return 0;
+  const texto = `Resumen del día: ${lista.length} prospecto(s) siguen sin vendedor. El más antiguo es el ${lista[0]!.codigo}.\n\nPulse el botón para ver la lista y tomar alguno.`;
+  let enviados = 0;
+  for (const v of await vendedoresActivos(db)) {
+    const ok = await enviarAVendedor(
+      db,
+      canal,
+      v,
+      ahora,
+      { tipo: "botones", texto, opciones: [{ id: "pendientes", titulo: "Ver la lista" }] },
+      { nombre: PLANTILLAS_VENDEDORES.resumenDia, parametros: [String(lista.length), lista[0]!.codigo ?? "-"], botones: ["pendientes"] },
+    );
+    if (ok) enviados++;
+  }
+  return enviados;
+}
+
 export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date()) {
-  const resumen = { recordatoriosSinTomar: 0, seguimientos: 0, archivadas: 0, renovaciones: 0 };
+  const resumen = { recordatoriosSinTomar: 0, seguimientos: 0, archivadas: 0, renovaciones: 0, resumenDia: 0 };
   // Sin la columna control_bot (migración de la fase 3 sin aplicar) no se puede llevar la cuenta
   // de avisos y se repetirían en cada ejecución; en ese caso no se hace nada.
   const { error: sinMigracion } = await db.from("solicitudes").select("control_bot").limit(1);
@@ -884,6 +954,7 @@ export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date())
   }
 
   resumen.renovaciones = await pedirRenovarVentana(db, canal, ahora);
+  resumen.resumenDia = await resumenDelDia(db, canal, ahora);
 
   if (!enHorarioLaboral(ahora)) return resumen;
   const vendedores = await vendedoresActivos(db);

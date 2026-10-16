@@ -26,7 +26,7 @@ import { Vacio } from "@/components/Vacio";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { estadoIntegracion } from "@/lib/bot.functions";
-import { claves, traerCampanas, traerServicios, traerSolicitudes, traerUsuarios, type Solicitud } from "@/lib/datos";
+import { claves, esDePrueba, traerCampanas, traerServicios, traerSolicitudes, traerUsuarios, type Solicitud } from "@/lib/datos";
 import { haceTiempo, horasDesde, inicioSemana, mesActualRango, moneda, TZ } from "@/lib/afpam";
 import { cabeza } from "@/lib/cabeza";
 import { cn } from "@/lib/utils";
@@ -212,7 +212,9 @@ function PaginaInicio() {
   const campanas = useQuery({ queryKey: claves.campanas, queryFn: traerCampanas });
   const yo = useQuery({ queryKey: ["yo"], queryFn: async () => (await supabase.auth.getUser()).data.user?.id ?? null });
 
-  const lista = solicitudes.data ?? [];
+  // La página de inicio solo cuenta clientes reales: sin datos de ejemplo ni pruebas del simulador.
+  const lista = (solicitudes.data ?? []).filter((s) => !esDePrueba(s));
+  const dePrueba = (solicitudes.data ?? []).length - lista.length;
   const semana = inicioSemana();
   const { inicio: inicioMes } = mesActualRango();
   const abiertas = lista.filter((s) => [1, 2, 3].includes(s.etapa));
@@ -315,7 +317,10 @@ function PaginaInicio() {
 
   return (
     <>
-      <EncabezadoPagina titulo={`${saludo()}${miNombre ? `, ${miNombre}` : ""}`} descripcion={hoyLargo()} />
+      <EncabezadoPagina
+        titulo={`${saludo()}${miNombre ? `, ${miNombre}` : ""}`}
+        descripcion={`${hoyLargo()}${dePrueba ? ` · No se cuentan ${dePrueba} solicitud(es) de prueba` : ""}`}
+      />
       <div className="space-y-6 p-8">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Tarjeta

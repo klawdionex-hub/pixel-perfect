@@ -3,7 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { normalizarOpciones, textoDeSalida, type Opcion, type Salida } from "./salida";
-import { enHorarioLaboral, texto, type ClaveTexto, type ConfigBot } from "./textos";
+import { enHorarioLaboral, horaDeEscribirClientes, texto, type ClaveTexto, type ConfigBot } from "./textos";
 import { avisarNuevoProspecto, reenviarMensajeCliente, tareasVendedores } from "./vendedores.server";
 import { leerCoordenadas } from "./coordenadas";
 
@@ -827,7 +827,9 @@ export async function procesarRecordatorios(db: DB, canal: Canal, ahora = new Da
   const h2 = Number(cfg["horas_recordatorio_cliente_2"] ?? 20);
   const hInc = Number(cfg["horas_incompleto"] ?? 24);
 
-  for (const fila of pendientes ?? []) {
+  // De noche no se escribe a clientes ni se pasan incompletos: se retoma a las 8:00.
+  const deDia = horaDeEscribirClientes(ahora);
+  for (const fila of deDia ? (pendientes ?? []) : []) {
     const contacto = fila.contactos as unknown as Contacto | null;
     if (!contacto || contacto.telefono.startsWith("sim-")) continue;
     const ses = await cargarSesion(db, canal, contacto, ahora);
@@ -856,7 +858,7 @@ export async function procesarRecordatorios(db: DB, canal: Canal, ahora = new Da
     return { ...resumen, ...(await tareasVendedores(db, canal, ahora)) };
   } catch (err) {
     console.error("[bot] Error en tareas de vendedores", err);
-    return { ...resumen, recordatoriosSinTomar: 0, seguimientos: 0, archivadas: 0 };
+    return { ...resumen, recordatoriosSinTomar: 0, seguimientos: 0, archivadas: 0, renovaciones: 0, resumenDia: 0 };
   }
 }
 

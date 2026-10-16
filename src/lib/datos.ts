@@ -25,6 +25,7 @@ export type Contacto = {
   nivel_interes: string;
   primer_contacto: string;
   ultimo_mensaje: string | null;
+  es_ejemplo?: boolean;
 };
 
 export type Solicitud = {
@@ -48,8 +49,14 @@ export type Solicitud = {
   resultado_en: string | null;
   creada_en: string;
   archivada_en: string | null;
+  es_ejemplo?: boolean;
   contactos?: Contacto | null;
 };
+
+/** Datos de ejemplo o conversaciones del simulador "Probar bot". */
+export function esDePrueba(s: Pick<Solicitud, "es_ejemplo" | "contactos">) {
+  return !!s.es_ejemplo || !!s.contactos?.es_ejemplo || !!s.contactos?.telefono.startsWith("sim-");
+}
 
 export type UsuarioPerfil = {
   id: string;
