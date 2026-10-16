@@ -485,7 +485,9 @@ function WhatsApp() {
   const [origen, setOrigen] = useState("");
   const [corriendo, setCorriendo] = useState(false);
   useEffect(() => {
-    setOrigen(window.location.origin);
+    // En la vista previa del editor de Lovable se muestra la dirección publicada, que es la que usa Meta.
+    const o = window.location.origin;
+    setOrigen(o.includes("id-preview--") ? "https://screenshot-magic-6909.lovable.app" : o);
   }, []);
 
   const copiar = (t: string) => navigator.clipboard.writeText(t).then(() => toast.success("Copiado"));
@@ -588,6 +590,12 @@ function PlantillasVendedores() {
       setOcupado(false);
     }
   }
+
+  // Al abrir la pestaña se consulta el estado de las plantillas en Meta.
+  useEffect(() => {
+    void revisar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function crear() {
     setOcupado(true);
