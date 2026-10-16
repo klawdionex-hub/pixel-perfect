@@ -51,7 +51,7 @@ for (const t of ["Hola", "juan pérez", "1", "si", "Texcoco, San Lorenzo", "elev
 const sA = solDe(A);
 afirmar(sA?.codigo === "3-1-0001" && sA.completa && sA.datos.material === "Lámina", `instalación crea folio ${sA?.codigo}`);
 afirmar(log.some((l) => l.includes("folio 3-1-0001")), "cierre con folio");
-const avisos = log.filter((l) => l.startsWith("VENDEDOR") && l.includes("afpam_nuevo_prospecto"));
+const avisos = log.filter((l) => l.startsWith("VENDEDOR") && l.includes("afpam_solicitud_recibida"));
 afirmar(avisos.length === 2 && avisos.every((l) => !l.includes("Juan") && !l.includes("551 111")), "aviso a 2 vendedores sin datos de contacto");
 
 afirmar(log.some((l) => l.includes("le haré 8 preguntas breves")), "aviso de cuántas preguntas antes de empezar");
@@ -185,10 +185,10 @@ afirmar(log.slice(marca).some((l) => l.startsWith("BOT>")), "a las 8:00 se retom
 reloj.ahora = new Date("2026-10-16T23:10:00Z"); // viernes 17:10 CDMX
 marca = log.length;
 await tareasVendedores(db, canal, reloj.ahora);
-afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR") && /esumen del d|resumen_del_dia/.test(l)), "resumen del día a los vendedores");
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR") && /esumen del d|pendientes_del_dia/.test(l)), "resumen del día a los vendedores");
 marca = log.length;
 await tareasVendedores(db, canal, new Date(reloj.ahora.getTime() + 600000));
-afirmar(!log.slice(marca).some((l) => /esumen del d|resumen_del_dia/.test(l)), "el resumen se manda una sola vez al día");
+afirmar(!log.slice(marca).some((l) => /esumen del d|pendientes_del_dia/.test(l)), "el resumen se manda una sola vez al día");
 await vendedor("v1", "Ver la lista", "pendientes");
 afirmar(log.at(-1)!.includes("sin vendedor"), "el botón Ver la lista muestra los prospectos sin vendedor");
 

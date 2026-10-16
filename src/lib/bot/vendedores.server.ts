@@ -42,15 +42,23 @@ type ControlBot = {
 
 /** Plantillas de utilidad para escribir a vendedores fuera de la ventana de 24 h. */
 export const PLANTILLAS_VENDEDORES = {
-  nuevo: "afpam_nuevo_prospecto",
+  // afpam_nuevo_prospecto y afpam_resumen_del_dia quedaron como marketing; estas son las versiones de aviso.
+  nuevo: "afpam_solicitud_recibida",
   recordatorio: "afpam_prospecto_sin_tomar",
   // La primera versión (afpam_seguimiento_prospecto) Meta la clasificó como marketing.
   seguimiento: "afpam_seguimiento_asignado",
   mensajeCliente: "afpam_mensaje_de_cliente",
   mensajeSinAsignar: "afpam_mensaje_sin_asignar",
   asignado: "afpam_prospecto_asignado",
-  resumenDia: "afpam_resumen_del_dia",
+  resumenDia: "afpam_pendientes_del_dia",
 } as const;
+
+/** Versiones anteriores que Meta clasificó como marketing; se usan solo si la nueva aún no está aprobada. */
+const PLANTILLAS_ANTERIORES: Record<string, string> = {
+  [PLANTILLAS_VENDEDORES.nuevo]: "afpam_nuevo_prospecto",
+  [PLANTILLAS_VENDEDORES.seguimiento]: "afpam_seguimiento_prospecto",
+  [PLANTILLAS_VENDEDORES.resumenDia]: "afpam_resumen_del_dia",
+};
 
 /** Definiciones para registrarlas en Meta (idioma es_MX, categoría UTILITY). */
 export const DEFINICIONES_PLANTILLAS = [
@@ -59,7 +67,7 @@ export const DEFINICIONES_PLANTILLAS = [
     components: [
       {
         type: "BODY",
-        text: "Nuevo prospecto {{1}}.\nServicio: {{2}}\nZona: {{3}}\nObservaciones: {{4}}\n\nLos datos de contacto se envían a quien lo tome. Seleccione una opción para continuar.",
+        text: "Se registró la solicitud de servicio {{1}} en el sistema de AFPAM Texcoco.\nServicio: {{2}}\nZona: {{3}}\nObservaciones: {{4}}\n\nLa solicitud está pendiente de asignación. Los datos de contacto se envían a quien la tome. Seleccione una opción para continuar.",
         example: { body_text: [["3-1-0045", "Elevadizo con paneles", "Texcoco", "Urgente"]] },
       },
       { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Lo tomo" }, { type: "QUICK_REPLY", text: "Ver detalles" }] },
@@ -126,7 +134,7 @@ export const DEFINICIONES_PLANTILLAS = [
     components: [
       {
         type: "BODY",
-        text: "Resumen del día de AFPAM Texcoco.\nProspectos que siguen sin vendedor: {{1}}\nEl más antiguo es el {{2}}.\n\nPulse el botón para ver la lista y tomar alguno.",
+        text: "Reporte de cierre del día de AFPAM Texcoco.\nSolicitudes de servicio pendientes de asignación: {{1}}\nLa más antigua es la {{2}}.\n\nSeleccione la opción para ver la lista de solicitudes pendientes.",
         example: { body_text: [["3", "3-1-0045"]] },
       },
       { type: "BUTTONS", buttons: [{ type: "QUICK_REPLY", text: "Ver la lista" }] },
@@ -229,13 +237,22 @@ async function enviarAVendedor(
     if (canal.siempreVentana || ventanaAbierta(v, ahora) || !plantilla) {
       await canal.vendedor(tel, v.nombre, interactivo);
     } else {
-      await canal.vendedor(tel, v.nombre, {
-        tipo: "plantilla",
-        nombre: plantilla.nombre,
-        idioma: "es_MX",
-        parametros: plantilla.parametros.map((p) => param(p)),
-        botones: plantilla.botones,
-      });
+      const enviarPlantilla = (nombre: string) =>
+        canal.vendedor(tel, v.nombre, {
+          tipo: "plantilla",
+          nombre,
+          idioma: "es_MX",
+          parametros: plantilla.parametros.map((p) => param(p)),
+          botones: plantilla.botones,
+        });
+      try {
+        await enviarPlantilla(plantilla.nombre);
+      } catch (err) {
+        // Mientras Meta aprueba la versión nueva, se usa la anterior (mismos datos y botones).
+        const anterior = PLANTILLAS_ANTERIORES[plantilla.nombre];
+        if (!anterior) throw err;
+        await enviarPlantilla(anterior);
+      }
     }
     await registrarAviso(db, v, ahora);
     return true;
