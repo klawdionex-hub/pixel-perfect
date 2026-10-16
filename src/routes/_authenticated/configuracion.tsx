@@ -576,12 +576,12 @@ function PlantillasVendedores() {
   const [detalle, setDetalle] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
-  async function revisar() {
+  async function revisar(conservarDetalle = false) {
     setOcupado(true);
     try {
       const r = await estadoFn();
       setLista(r.plantillas);
-      setDetalle(r.error);
+      if (!conservarDetalle || r.error) setDetalle(r.error);
     } catch (e) {
       setDetalle(e instanceof Error ? e.message : String(e));
     } finally {
@@ -602,7 +602,7 @@ function PlantillasVendedores() {
       setDetalle(e instanceof Error ? e.message : String(e));
     } finally {
       setOcupado(false);
-      revisar();
+      void revisar(true);
     }
   }
 
@@ -624,7 +624,7 @@ function PlantillasVendedores() {
         Mientras no estén aprobadas, los avisos solo llegan a los vendedores que escribieron al bot ese día.
       </p>
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={ocupado} onClick={revisar}>Ver estado</Button>
+        <Button variant="outline" disabled={ocupado} onClick={() => void revisar()}>Ver estado</Button>
         <Button disabled={ocupado} onClick={crear}>Crear las que falten en Meta</Button>
       </div>
       {lista ? (
