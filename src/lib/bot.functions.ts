@@ -69,14 +69,14 @@ export const estadoPlantillasVendedores = createServerFn({ method: "POST" })
     const { consultarMeta } = await import("@/lib/whatsapp.server");
     const { DEFINICIONES_PLANTILLAS } = await import("@/lib/bot/vendedores.server");
     const r = await consultarMeta(
-      `${process.env["WHATSAPP_WABA_ID"] ?? ""}/message_templates?fields=name,status,language,rejected_reason&limit=200`,
+      `${process.env["WHATSAPP_WABA_ID"] ?? ""}/message_templates?fields=name,status,language,rejected_reason,category&limit=200`,
     );
-    const lista = ((r.datos as { data?: Array<{ name: string; status: string; language: string; rejected_reason?: string }> })?.data ?? []);
+    const lista = ((r.datos as { data?: Array<{ name: string; status: string; language: string; rejected_reason?: string; category?: string }> })?.data ?? []);
     return {
       error: r.ok ? null : JSON.stringify(r.datos),
       plantillas: DEFINICIONES_PLANTILLAS.map((d) => {
         const m = lista.find((x) => x.name === d.name && x.language === "es_MX");
-        return { nombre: d.name, estado: m?.status ?? "NO CREADA", motivo: m?.rejected_reason ?? null };
+        return { nombre: d.name, estado: m?.status ?? "NO CREADA", motivo: m?.rejected_reason ?? null, categoria: m?.category ?? null };
       }),
     };
   });
@@ -87,9 +87,18 @@ export const crearPlantillasVendedores = createServerFn({ method: "POST" })
   .handler(async () => {
     const { publicarMeta } = await import("@/lib/whatsapp.server");
     const { DEFINICIONES_PLANTILLAS } = await import("@/lib/bot/vendedores.server");
+    const { consultarMeta } = await import("@/lib/whatsapp.server");
     const waba = process.env["WHATSAPP_WABA_ID"] ?? "";
+    // Solo se crean las que no existen; las demás darían "Ya existe contenido en este idioma".
+    const actuales = await consultarMeta(`${waba}/message_templates?fields=name,language&limit=200`);
+    const existentes = new Set(
+      ((actuales.datos as { data?: Array<{ name: string; language: string }> })?.data ?? [])
+        .filter((x) => x.language === "es_MX")
+        .map((x) => x.name),
+    );
     const resultados: Array<{ nombre: string; ok: boolean; detalle: string }> = [];
     for (const d of DEFINICIONES_PLANTILLAS) {
+      if (existentes.has(d.name)) continue;
       const r = await publicarMeta(`${waba}/message_templates`, { ...d, language: "es_MX", category: "UTILITY" });
       resultados.push({ nombre: d.name, ok: r.ok, detalle: JSON.stringify(r.datos) });
     }

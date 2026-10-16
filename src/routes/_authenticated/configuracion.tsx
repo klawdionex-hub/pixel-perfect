@@ -574,7 +574,7 @@ function WhatsApp() {
 function PlantillasVendedores() {
   const estadoFn = useServerFn(estadoPlantillasVendedores);
   const crearFn = useServerFn(crearPlantillasVendedores);
-  const [lista, setLista] = useState<Array<{ nombre: string; estado: string; motivo: string | null }> | null>(null);
+  const [lista, setLista] = useState<Array<{ nombre: string; estado: string; motivo: string | null; categoria?: string | null }> | null>(null);
   const [detalle, setDetalle] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState(false);
 
@@ -651,6 +651,7 @@ function PlantillasVendedores() {
               >
                 {ETIQUETA[p.estado] ?? p.estado}
                 {p.motivo && p.motivo !== "NONE" ? ` (${p.motivo})` : ""}
+                {p.categoria === "MARKETING" ? " · Meta la clasificó como publicidad" : ""}
               </span>
             </li>
           ))}

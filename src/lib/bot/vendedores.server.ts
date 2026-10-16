@@ -44,7 +44,8 @@ type ControlBot = {
 export const PLANTILLAS_VENDEDORES = {
   nuevo: "afpam_nuevo_prospecto",
   recordatorio: "afpam_prospecto_sin_tomar",
-  seguimiento: "afpam_seguimiento_prospecto",
+  // La primera versión (afpam_seguimiento_prospecto) Meta la clasificó como marketing.
+  seguimiento: "afpam_seguimiento_asignado",
   mensajeCliente: "afpam_mensaje_de_cliente",
   mensajeSinAsignar: "afpam_mensaje_sin_asignar",
   asignado: "afpam_prospecto_asignado",
@@ -80,7 +81,7 @@ export const DEFINICIONES_PLANTILLAS = [
     components: [
       {
         type: "BODY",
-        text: "Seguimiento del prospecto {{1}} ({{2}}, {{3}}).\n¿Cuál es su estado actual? Seleccione una opción.",
+        text: "Recordatorio de seguimiento del prospecto {{1}} que tiene asignado.\nCliente: {{2}}\nMunicipio: {{3}}\n\nPor favor registre el estado actual del trabajo seleccionando una de las opciones.",
         example: { body_text: [["3-1-0045", "Juan Pérez", "Texcoco"]] },
       },
       {
