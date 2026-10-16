@@ -54,6 +54,10 @@ afirmar(log.some((l) => l.includes("folio 3-1-0001")), "cierre con folio");
 const avisos = log.filter((l) => l.startsWith("VENDEDOR") && l.includes("afpam_nuevo_prospecto"));
 afirmar(avisos.length === 2 && avisos.every((l) => !l.includes("Juan") && !l.includes("551 111")), "aviso a 2 vendedores sin datos de contacto");
 
+afirmar(log.some((l) => l.includes("le haré 8 preguntas breves")), "aviso de cuántas preguntas antes de empezar");
+afirmar(log.some((l) => l.includes("Pregunta 1 de 8")) && log.some((l) => l.includes("Pregunta 8 de 8")), "contador en cada pregunta");
+if (process.env["VER_CONVERSACION"]) console.log(log.filter((l) => !l.startsWith("VENDEDOR")).slice(0, 30).join("\n"));
+
 // --- Lo tomo y venta
 tablas["usuarios_perfil"]![0]!.ultimo_mensaje_wa = reloj.ahora.toISOString();
 await vendedor("v1", "Lo tomo", `tomar:${sA!.id}`);

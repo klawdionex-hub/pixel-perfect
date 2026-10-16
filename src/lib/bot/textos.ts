@@ -6,6 +6,7 @@ export type ClaveTexto =
   | "saludo"
   | "menu"
   | "cliente_regresa"
+  | "intro_encuesta"
   | "pregunta_zona"
   | "fuera_de_zona"
   | "pregunta_municipio"
@@ -51,6 +52,11 @@ export const TEXTOS: Record<ClaveTexto, DefTexto> = {
     columna: "texto_cliente_regresa",
     legado: "Es un gusto saludarle nuevamente. ¿En qué podemos ayudarle?",
     porDefecto: "Buen día, {nombre}. Es un gusto saludarle nuevamente. ¿En qué podemos ayudarle?",
+  },
+  intro_encuesta: {
+    etiqueta: "Aviso antes de empezar las preguntas ({servicio}, {total} = número de preguntas)",
+    porDefecto:
+      "Para preparar su cotización de {servicio} le haré {total} preguntas breves; le tomará uno o dos minutos.\n\nLe pedimos contestarlas todas: con esa información su asesor podrá atenderle más rápido y darle un precio más preciso, sin tener que volver a preguntarle.",
   },
   pregunta_zona: {
     etiqueta: "Pregunta de zona",

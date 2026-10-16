@@ -49,6 +49,8 @@ type DatosSesion = {
   urgente?: boolean | undefined;
   fuera_de_zona?: boolean | undefined;
   respuestas?: Respuestas | undefined;
+  /** Preguntas de la encuesta en curso (para el contador "Pregunta 2 de 8") y si ya se avisó cuántas son. */
+  encuesta?: { pasos: string[]; avisada?: boolean } | undefined;
 };
 
 type Estado = {
@@ -321,7 +323,7 @@ function preguntaDe(ses: Sesion, paso: Paso): Salida {
 async function irA(ses: Sesion, paso: Paso) {
   ses.estado.paso_actual = paso;
   ses.estado.intentos_fallidos = 0;
-  await enviar(ses, preguntaDe(ses, paso));
+  await enviar(ses, await avisoYContador(ses, paso, preguntaDe(ses, paso)));
 }
 
 function respuestas(ses: Sesion) {
@@ -334,14 +336,41 @@ function pasoDeServicio(ses: Sesion): Paso {
   return ses.estado.datos.flujo === "instalacion" ? "tipo_instalacion" : "equipo";
 }
 
+const PASOS_ENCUESTA: Record<Flujo, Paso[]> = {
+  instalacion: ["zona", "municipio", "tipo_instalacion", "tiene_porton", "medidas", "material", "foto", "horario"],
+  reparacion: ["zona", "municipio", "equipo", "marca", "falla", "urgente", "foto", "horario"],
+  mantenimiento: ["zona", "municipio", "equipo", "marca", "ultimo_mantenimiento", "horario"],
+};
+
 function iniciarFlujo(ses: Sesion, flujo: Flujo): Paso {
   ses.estado.flujo_actual = "solicitud";
+  const conMunicipio = !!ses.contacto.municipio;
   ses.estado.datos = {
     flujo,
     servicio: flujo === "reparacion" ? 8 : flujo === "mantenimiento" ? 9 : undefined,
     respuestas: {},
+    encuesta: { pasos: PASOS_ENCUESTA[flujo].filter((p) => !conMunicipio || (p !== "zona" && p !== "municipio")) },
   };
-  return ses.contacto.municipio ? pasoDeServicio(ses) : "zona";
+  return conMunicipio ? pasoDeServicio(ses) : "zona";
+}
+
+const NOMBRE_FLUJO: Record<Flujo, string> = { instalacion: "instalación", reparacion: "reparación", mantenimiento: "mantenimiento" };
+
+/** Antes de la primera pregunta avisa cuántas son; en cada una agrega "Pregunta 2 de 8". */
+async function avisoYContador(ses: Sesion, paso: Paso, salida: Salida): Promise<Salida> {
+  const enc = ses.estado.datos.encuesta;
+  const flujo = ses.estado.datos.flujo;
+  const i = enc ? enc.pasos.indexOf(paso) : -1;
+  if (!enc || !flujo || i < 0) return salida;
+  if (!enc.avisada) {
+    enc.avisada = true;
+    await enviar(ses, {
+      tipo: "texto",
+      texto: texto(ses.config, "intro_encuesta", { servicio: NOMBRE_FLUJO[flujo], total: enc.pasos.length }),
+    });
+  }
+  if (!("texto" in salida) || typeof salida.texto !== "string") return salida;
+  return { ...salida, texto: `Pregunta ${i + 1} de ${enc.pasos.length}\n${salida.texto}` } as Salida;
 }
 
 async function enviarInformacion(ses: Sesion, id: string) {
@@ -783,7 +812,7 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
 
   // Un archivo fuera del paso de foto se guarda, pero no cuenta como respuesta.
   if (e.media && !e.texto && paso !== "foto") {
-    await enviar(ses, preguntaDe(ses, paso));
+    await enviar(ses, await avisoYContador(ses, paso, preguntaDe(ses, paso)));
     return;
   }
 
@@ -796,7 +825,7 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
       return;
     }
     await enviar(ses, { tipo: "texto", texto: texto(ses.config, "no_entendi") });
-    await enviar(ses, preguntaDe(ses, paso));
+    await enviar(ses, await avisoYContador(ses, paso, preguntaDe(ses, paso)));
     return;
   }
   if (res === "asesor") {
