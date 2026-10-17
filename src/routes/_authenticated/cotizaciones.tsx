@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { FileDown, Plus } from "lucide-react";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/components/AppLayout";
-import { FormularioCotizacion } from "@/components/FormularioCotizacion";
+import { descargarPdf, FormularioCotizacion } from "@/components/FormularioCotizacion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
@@ -38,6 +38,17 @@ type Cotizacion = {
   creada_en: string;
   solicitudes: { codigo: string | null } | null;
 };
+
+/** Descarga el PDF guardado; si el navegador no deja leerlo, lo abre en la misma pestaña. */
+async function bajar(url: string, nombre: string) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(String(r.status));
+    descargarPdf(await r.blob(), nombre);
+  } catch {
+    window.location.href = url;
+  }
+}
 
 function Pagina() {
   const busquedaUrl = Route.useSearch();
@@ -138,15 +149,17 @@ function Pagina() {
                 <span className="hidden text-xs text-muted-foreground md:block">{fechaHora(c.creada_en)}</span>
                 <span className="hidden justify-end md:flex">
                   {c.pdf_url ? (
-                    <a
-                      href={c.pdf_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 text-sm font-semibold text-petroleo hover:underline"
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void bajar(c.pdf_url!, `${c.folio} ${c.cliente_nombre}`);
+                      }}
+                      className="inline-flex cursor-pointer items-center gap-1 text-sm font-semibold text-petroleo hover:underline"
                     >
                       <FileDown className="h-4 w-4" /> PDF
-                    </a>
+                    </span>
                   ) : null}
                 </span>
               </button>
@@ -184,9 +197,9 @@ function Pagina() {
                       </Link>
                     ) : null}
                     {c.pdf_url ? (
-                      <a href={c.pdf_url} target="_blank" rel="noreferrer" className="font-semibold text-petroleo hover:underline md:hidden">
+                      <button onClick={() => void bajar(c.pdf_url!, `${c.folio} ${c.cliente_nombre}`)} className="font-semibold text-petroleo hover:underline">
                         Descargar PDF
-                      </a>
+                      </button>
                     ) : null}
                   </div>
                 </div>

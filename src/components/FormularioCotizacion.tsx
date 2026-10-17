@@ -35,6 +35,19 @@ type Equipo = {
 
 type Fila = { clave: string; equipo_id: string | null; concepto: string; cantidad: string; precio: string; costo: number | null };
 
+/** Descarga un PDF sin abrir pestañas nuevas (algunos navegadores, como Brave, bloquean las pestañas con archivos). */
+export function descargarPdf(bytes: Uint8Array | Blob, nombre: string) {
+  const blob = bytes instanceof Blob ? bytes : new Blob([bytes as BlobPart], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre.endsWith(".pdf") ? nombre : `${nombre}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 const filaVacia = (): Fila => ({ clave: crypto.randomUUID(), equipo_id: null, concepto: "", cantidad: "1", precio: "", costo: null });
 const num = (t: string) => {
   const n = Number(t.replace(/[$,\s]/g, ""));
@@ -65,7 +78,9 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
   const [iva, setIva] = useState<Iva>(null);
   const [conMarca, setConMarca] = useState(false);
   const [generando, setGenerando] = useState(false);
-  const [resultado, setResultado] = useState<{ folio: string; url: string; aviso: string | null } | null>(null);
+  const [resultado, setResultado] = useState<{ folio: string; url: string; aviso: string | null; bytes: Uint8Array } | null>(null);
+  const [previa, setPrevia] = useState<{ url: string; bytes: Uint8Array } | null>(null);
+  const nombreArchivo = (folio: string) => `${folio} ${cliente.nombre}`.replace(/[^\p{L}\p{N} -]/gu, "").trim();
 
   const equipos = equiposQ.data ?? [];
   const abiertas = (solicitudes.data ?? []).filter((s) => [1, 2, 3].includes(s.etapa) && !s.es_ejemplo);
@@ -165,8 +180,13 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
   async function vistaPrevia() {
     const error = validar();
     if (error) return void toast.error(error);
-    const bytes = await armarPdf("COT-BORRADOR");
-    window.open(URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" })), "_blank");
+    try {
+      const bytes = await armarPdf("COT-BORRADOR");
+      if (previa) URL.revokeObjectURL(previa.url);
+      setPrevia({ url: URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" })), bytes });
+    } catch (e) {
+      toast.error(`No se pudo armar la vista previa: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   async function generar() {
@@ -205,6 +225,7 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
       setResultado({
         folio: cot.folio,
         url,
+        bytes,
         aviso:
           ganancia != null
             ? `Ganancia aproximada ${pesos(ganancia)}${sinCosto ? ` (sin contar ${sinCosto} concepto(s) sin costo registrado)` : ""}. No aparece en el PDF.`
@@ -231,11 +252,7 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
           </p>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          <Button asChild>
-            <a href={resultado.url} target="_blank" rel="noreferrer">
-              Abrir PDF
-            </a>
-          </Button>
+          <Button onClick={() => descargarPdf(resultado.bytes, nombreArchivo(resultado.folio))}>Descargar PDF</Button>
           <Button variant="outline" onClick={alTerminar}>
             Cerrar
           </Button>
@@ -403,6 +420,24 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
           </Button>
         </div>
       </div>
+
+      {previa ? (
+        <div className="space-y-2 border-t border-border pt-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">Vista previa (todavía no se guarda)</p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => descargarPdf(previa.bytes, nombreArchivo("Vista previa"))}>
+                Descargar
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setPrevia(null)}>
+                Cerrar
+              </Button>
+            </div>
+          </div>
+          <iframe title="Vista previa de la cotización" src={previa.url} className="h-[75vh] w-full rounded-md border border-border bg-white" />
+          <p className="text-xs text-muted-foreground">Si no se ve aquí, use Descargar: algunos navegadores no muestran PDF dentro de la página.</p>
+        </div>
+      ) : null}
     </div>
   );
 }
