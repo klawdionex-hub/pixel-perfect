@@ -13,3 +13,6 @@ export function indiceCategoria(categoria: string): number {
 export function pieDeFoto(e: { clave: string; nombre: string; descripcion?: string | null }): string {
   return [`*${e.clave}*`, e.nombre, e.descripcion?.trim() ? `\n${e.descripcion.trim()}` : ""].filter(Boolean).join("\n");
 }
+
+/** Conceptos del catálogo que no son equipos (instalación, controles extra…). No aparecen en el menú de fotos. */
+export const CATEGORIA_SERVICIOS = "Servicios y extras";

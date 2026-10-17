@@ -45,6 +45,7 @@ const FIJAS = [
   { seccion: "Mis prospectos", titulo: "Prospectos sin vendedor" },
   { seccion: "Mis ventas", titulo: "Ventas y comisión" },
   { seccion: "Catálogo", titulo: "Catálogo de equipos" },
+  { seccion: "Catálogo", titulo: "Hacer cotización" },
 ];
 
 function Pagina() {
@@ -140,8 +141,8 @@ function Pagina() {
 
   const faltaTabla = q.error && /material_venta|relation|schema cache/i.test(q.error.message);
   const activos = lista.filter((m) => m.activo);
-  // Una lista de WhatsApp admite 10 filas: 5 fijas y 5 de material (o 4 y "Más material…").
-  const enPrimera = activos.length > 5 ? 4 : 5;
+  // Una lista de WhatsApp admite 10 filas: 6 fijas y 4 de material (o 3 y "Más material…").
+  const enPrimera = activos.length > 4 ? 3 : 4;
 
   return (
     <div>

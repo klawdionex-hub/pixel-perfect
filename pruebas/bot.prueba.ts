@@ -24,9 +24,11 @@ const { db, tablas, reloj } = crearBD({
 });
 
 const log: string[] = [];
+const archivos: Record<string, Uint8Array> = {};
 const canal: Canal = {
   cliente: async (_t, s: Salida) => { log.push("BOT> " + textoDeSalida(s).replace(/\n/g, " | ")); return null; },
   vendedor: async (t, n, s) => { log.push(`VENDEDOR ${n} (${t})> ` + textoDeSalida(s).replace(/\n/g, " | ")); },
+  guardarArchivo: async (ruta, bytes) => { archivos[ruta] = bytes; return `https://archivos/${ruta}`; },
 };
 const cliente = async (tel: string, texto?: string, opcionId?: string) => {
   log.push(`CLIENTE ${tel}> ${texto ?? ""}${opcionId ? ` [${opcionId}]` : ""}`);
@@ -294,6 +296,61 @@ const fotosEq = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana"));
 afirmar(fotosEq.filter((l) => l.includes("[Imagen]")).length === 2 && fotosEq[0]!.includes("AFPAM C-600") && fotosEq[0]!.includes("600 kg"), "se mandan las fotos con pie de foto");
 afirmar(!fotosEq.some((l) => l.includes("Marca X")), "las notas internas nunca se envían");
 afirmar(tablas["equipos_catalogo"]![0]!.usos === 1, "se cuenta el uso del equipo");
+
+// --- Cotización desde el bot
+tablas["equipos_catalogo"]!.push(
+  { id: "e3", clave: "AFPAM CR-800", nombre: "Motor de cremallera hasta 800 kg", categoria: "Motor de cremallera", descripcion: null, fotos: [], notas_internas: null, activo: true, orden: 3, usos: 0, precio: 8500, costo: 6000, marca: "MarcaQ", modelo: "Q800", capacidad: "800 kg", incluye: "2 controles", unidad: "pieza" },
+  { id: "s1", clave: "INST", nombre: "Instalación", categoria: "Servicios y extras", descripcion: null, fotos: [], notas_internas: null, activo: true, orden: 4, usos: 0, precio: 2500, costo: 800, unidad: "servicio" },
+);
+const suyaCot = tablas["solicitudes"]!.find((x) => x.vendedor_id === "v2" && x.etapa === 1) ?? (() => {
+  const libre = tablas["solicitudes"]!.find((x) => !x.vendedor_id && x.etapa === 1)!;
+  libre.vendedor_id = "v2";
+  return libre;
+})();
+marca = log.length;
+await vendedor("v2", "COMANDOS");
+afirmar(log.slice(marca).some((l) => l.includes("Hacer cotización")), "el menú trae Hacer cotización");
+await vendedor("v2", "Hacer cotización", "cmd:cotizar");
+afirmar(log.at(-1)!.includes("Nueva cotización") && log.at(-1)!.includes("Cliente nuevo"), "la cotización pregunta el cliente");
+await vendedor("v2", suyaCot.codigo, `cot:sol:${suyaCot.id}`);
+afirmar(log.at(-1)!.includes("¿Qué equipo va a cotizar?") && log.at(-1)!.includes("Motor de cremallera") && !log.at(-1)!.includes("Servicios y extras"), "pregunta el equipo por categoría (sin servicios)");
+await vendedor("v2", "Motor de cremallera", "cot:cat:2");
+await vendedor("v2", "AFPAM CR-800", "cot:eq:e3");
+afirmar(log.at(-1)!.includes("$8,500"), "ofrece el precio del catálogo");
+await vendedor("v2", "Usar este precio", "cot:usar");
+await vendedor("v2", "Servicios y extras", "cot:serv");
+await vendedor("v2", "Instalación", "cot:eq:s1");
+await vendedor("v2", "Otro precio", "cot:otro");
+await vendedor("v2", "3000");
+await vendedor("v2", "Concepto a mano", "cot:libre");
+await vendedor("v2", "Fabricación de portón elevadizo 3 x 2.4 m");
+await vendedor("v2", "abc");
+afirmar(log.at(-1)!.includes("No entendí el precio"), "precio no válido se vuelve a pedir");
+await vendedor("v2", "18,000");
+await vendedor("v2", "Controles", "cot:serv");
+await vendedor("v2", "Instalación", "cot:eq:s1");
+await vendedor("v2", "Otro precio", "cot:otro");
+await vendedor("v2", "2 x 350");
+afirmar(log.at(-1)!.includes("Total: *$30,200.00*"), `suma bien las partidas (${log.at(-1)!.slice(-60)})`);
+await vendedor("v2", "Quitar", "cot:quitar");
+await vendedor("v2", "Quitar 4", "cot:q:3");
+afirmar(log.at(-1)!.includes("Total: *$29,500.00*"), "quitar un concepto");
+await vendedor("v2", "Terminar", "cot:fin");
+await vendedor("v2", "Más IVA", "cot:iva:mas");
+afirmar(log.at(-1)!.includes("Resumen de la cotización") && log.at(-1)!.includes("Precios más IVA"), "resumen final con IVA");
+marca = log.length;
+await vendedor("v2", "PDF con marca", "cot:pdf:si");
+const cotizacion = (tablas["cotizaciones"] ?? []).at(-1);
+afirmar(cotizacion && cotizacion.total === 29500 && cotizacion.con_marca && cotizacion.equipo_principal_id === "e3", "se guarda la cotización");
+afirmar(Object.keys(archivos).some((r) => r.startsWith("cotizaciones/")) && Object.values(archivos).some((b) => b.length > 10000), "se genera el PDF");
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Ana") && l.includes("[Documento:")), "el PDF le llega solo al vendedor");
+afirmar(log.slice(marca).some((l) => l.includes("ganancia aproximada")) && log.slice(marca).some((l) => l.includes("Revísela antes de reenviarla")), "aviso de revisar y la ganancia");
+if (process.env["GUARDAR_PDF"]) for (const [r, b] of Object.entries(archivos)) if (r.endsWith(".pdf")) (await import("node:fs")).writeFileSync(process.env["GUARDAR_PDF"], b);
+afirmar(suyaCot.etapa === 2, "el prospecto pasa a Cotizado");
+afirmar(!(tablas["usuarios_perfil"]!.find((u) => u.id === "v2")!.estado_bot as { cot?: unknown }).cot, "el borrador se borra al terminar");
+await vendedor("v2", "Hacer cotización", "cmd:cotizar");
+await vendedor("v2", "cancelar");
+afirmar(log.at(-1)!.includes("Cotización cancelada"), "cancelar una cotización");
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

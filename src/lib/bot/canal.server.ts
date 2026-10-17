@@ -7,6 +7,12 @@ export const canalWhatsApp: Canal = {
   vendedor: async (telefono, _nombre, s) => {
     await enviarWhatsApp(telefono, s);
   },
+  guardarArchivo: async (ruta, bytes, tipo) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.storage.from("media").upload(ruta, bytes, { contentType: tipo, upsert: true });
+    if (error) throw new Error(`No se pudo guardar el archivo: ${error.message}`);
+    return supabaseAdmin.storage.from("media").getPublicUrl(ruta).data.publicUrl;
+  },
 };
 
 const EXTENSIONES: Record<string, string> = {

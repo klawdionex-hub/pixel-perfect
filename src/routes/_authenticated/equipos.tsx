@@ -13,7 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { fechaHora } from "@/lib/afpam";
-import { CATEGORIAS_EQUIPO, pieDeFoto } from "@/lib/bot/equipos";
+import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, pieDeFoto } from "@/lib/bot/equipos";
+import { pesos } from "@/lib/cotizaciones/datos";
 import { cabeza } from "@/lib/cabeza";
 import { cn } from "@/lib/utils";
 
@@ -34,10 +35,68 @@ type Equipo = {
   orden: number;
   usos: number;
   ultimo_uso: string | null;
+  precio: number | null;
+  costo: number | null;
+  unidad: string;
+  marca: string | null;
+  modelo: string | null;
+  capacidad: string | null;
+  dimensiones: string | null;
+  peso: string | null;
+  alimentacion: string | null;
+  consumo: string | null;
+  incluye: string | null;
 };
-type Borrador = Omit<Equipo, "id" | "orden" | "usos" | "ultimo_uso"> & { id?: string };
+type Texto = "marca" | "modelo" | "capacidad" | "dimensiones" | "peso" | "alimentacion" | "consumo" | "incluye";
+const FICHA: Array<{ campo: Texto; etiqueta: string; ejemplo: string }> = [
+  { campo: "capacidad", etiqueta: "Capacidad", ejemplo: "600 kg" },
+  { campo: "dimensiones", etiqueta: "Dimensiones", ejemplo: "30 x 20 x 25 cm" },
+  { campo: "peso", etiqueta: "Peso", ejemplo: "9 kg" },
+  { campo: "alimentacion", etiqueta: "Alimentación", ejemplo: "127 V" },
+  { campo: "consumo", etiqueta: "Consumo", ejemplo: "280 W" },
+];
+const CATEGORIAS = [...CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS];
+type Borrador = Omit<Equipo, "id" | "orden" | "usos" | "ultimo_uso" | "precio" | "costo"> & { id?: string; precio: string; costo: string };
 
-const VACIO: Borrador = { clave: "", nombre: "", categoria: CATEGORIAS_EQUIPO[0], descripcion: "", fotos: [], notas_internas: "", activo: true };
+const VACIO: Borrador = {
+  clave: "",
+  nombre: "",
+  categoria: CATEGORIAS_EQUIPO[0],
+  descripcion: "",
+  fotos: [],
+  notas_internas: "",
+  activo: true,
+  precio: "",
+  costo: "",
+  unidad: "pieza",
+  marca: "",
+  modelo: "",
+  capacidad: "",
+  dimensiones: "",
+  peso: "",
+  alimentacion: "",
+  consumo: "",
+  incluye: "",
+};
+const aBorrador = (e: Equipo): Borrador => ({
+  ...e,
+  descripcion: e.descripcion ?? "",
+  notas_internas: e.notas_internas ?? "",
+  precio: e.precio != null ? String(e.precio) : "",
+  costo: e.costo != null ? String(e.costo) : "",
+  marca: e.marca ?? "",
+  modelo: e.modelo ?? "",
+  capacidad: e.capacidad ?? "",
+  dimensiones: e.dimensiones ?? "",
+  peso: e.peso ?? "",
+  alimentacion: e.alimentacion ?? "",
+  consumo: e.consumo ?? "",
+  incluye: e.incluye ?? "",
+});
+const numero = (t: string) => {
+  const n = Number(t.replace(/[$,\s]/g, ""));
+  return t.trim() && Number.isFinite(n) ? n : null;
+};
 const CLAVE_QUERY = ["equipos_catalogo"];
 
 function Pagina() {
@@ -62,8 +121,8 @@ function Pagina() {
     setSubiendo(true);
     const nuevas: Array<{ url: string }> = [];
     for (const a of Array.from(archivos)) {
-      if (!a.type.startsWith("image/")) {
-        toast.error(`${a.name}: suba una imagen (JPG o PNG).`);
+      if (a.type !== "image/jpeg" && a.type !== "image/png") {
+        toast.error(`${a.name}: suba la foto en JPG o PNG (son los formatos que acepta el PDF de la cotización).`);
         continue;
       }
       if (a.size > 5 * 1024 * 1024) {
@@ -88,6 +147,10 @@ function Pagina() {
       toast.error("Escriba la clave y el nombre para el cliente.");
       return;
     }
+    if ((f.precio.trim() && numero(f.precio) == null) || (f.costo.trim() && numero(f.costo) == null)) {
+      toast.error("El precio y el costo deben ser números, por ejemplo 8500.");
+      return;
+    }
     const repetida = lista.find((e) => e.clave.trim().toUpperCase() === f.clave.trim().toUpperCase() && e.id !== f.id);
     if (repetida) {
       toast.error(`La clave ${repetida.clave} ya existe.`);
@@ -102,6 +165,17 @@ function Pagina() {
       fotos: f.fotos as unknown as Json,
       notas_internas: f.notas_internas?.trim() || null,
       activo: f.activo,
+      precio: numero(f.precio),
+      costo: numero(f.costo),
+      unidad: f.unidad.trim() || "pieza",
+      marca: f.marca?.trim() || null,
+      modelo: f.modelo?.trim() || null,
+      capacidad: f.capacidad?.trim() || null,
+      dimensiones: f.dimensiones?.trim() || null,
+      peso: f.peso?.trim() || null,
+      alimentacion: f.alimentacion?.trim() || null,
+      consumo: f.consumo?.trim() || null,
+      incluye: f.incluye?.trim() || null,
     };
     const { error } = f.id
       ? await supabase.from("equipos_catalogo").update(datos).eq("id", f.id)
@@ -174,7 +248,7 @@ function Pagina() {
                   value={f.categoria}
                   onChange={(e) => setF({ ...f, categoria: e.target.value })}
                 >
-                  {CATEGORIAS_EQUIPO.map((c) => (
+                  {CATEGORIAS.map((c) => (
                     <option key={c}>{c}</option>
                   ))}
                 </select>
@@ -210,13 +284,69 @@ function Pagina() {
               {f.fotos.length < 6 ? (
                 <label className="flex cursor-pointer items-center justify-center rounded-md border-2 border-dashed border-border p-4 text-sm text-muted-foreground hover:bg-muted">
                   {subiendo ? "Subiendo…" : "Haga clic para subir fotos del equipo instalado (sin logos de marca)"}
-                  <input type="file" multiple accept="image/*" className="hidden" onChange={(e) => e.target.files && void subir(e.target.files)} />
+                  <input type="file" multiple accept="image/jpeg,image/png" className="hidden" onChange={(e) => e.target.files && void subir(e.target.files)} />
                 </label>
               ) : null}
             </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <Label>Precio al cliente (para cotizar)</Label>
+                <Input inputMode="decimal" value={f.precio} placeholder="8500" onChange={(e) => setF({ ...f, precio: e.target.value })} />
+                <p className="mt-1 text-xs text-muted-foreground">Vacío si el precio va a mano en cada cotización.</p>
+              </div>
+              <div>
+                <Label className="flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5" /> Costo (interno)
+                </Label>
+                <Input inputMode="decimal" value={f.costo} placeholder="6200" onChange={(e) => setF({ ...f, costo: e.target.value })} />
+                <p className="mt-1 text-xs text-muted-foreground">Solo para calcular la ganancia. No se imprime.</p>
+              </div>
+              <div>
+                <Label>Unidad</Label>
+                <Input value={f.unidad} placeholder="pieza" onChange={(e) => setF({ ...f, unidad: e.target.value })} />
+              </div>
+            </div>
+            {f.categoria !== CATEGORIA_SERVICIOS ? (
+              <div className="space-y-3 rounded-md border border-border p-4">
+                <p className="text-sm font-semibold">Ficha técnica (para la cotización)</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label className="flex items-center gap-1.5">
+                      <Lock className="h-3.5 w-3.5" /> Marca
+                    </Label>
+                    <Input value={f.marca ?? ""} onChange={(e) => setF({ ...f, marca: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="flex items-center gap-1.5">
+                      <Lock className="h-3.5 w-3.5" /> Modelo
+                    </Label>
+                    <Input value={f.modelo ?? ""} onChange={(e) => setF({ ...f, modelo: e.target.value })} />
+                  </div>
+                  {FICHA.map((c) => (
+                    <div key={c.campo}>
+                      <Label>{c.etiqueta}</Label>
+                      <Input value={f[c.campo] ?? ""} placeholder={c.ejemplo} onChange={(e) => setF({ ...f, [c.campo]: e.target.value })} />
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <Label>Qué incluye el equipo</Label>
+                  <Textarea rows={2} value={f.incluye ?? ""} placeholder="2 controles remotos, 4 m de cremallera, fotoceldas, instalación y capacitación." onChange={(e) => setF({ ...f, incluye: e.target.value })} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  La marca y el modelo solo se imprimen cuando el vendedor pide el PDF "con marca" (al cerrar la venta). Nunca se
+                  envían en las fotos del catálogo.
+                </p>
+              </div>
+            ) : (
+              <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                Los servicios y extras (instalación, controles, cableado…) se usan en las cotizaciones y no aparecen en el
+                catálogo de fotos del bot.
+              </p>
+            )}
             <div>
               <Label className="flex items-center gap-1.5">
-                <Lock className="h-3.5 w-3.5" /> Notas internas (marca, modelo, costo)
+                <Lock className="h-3.5 w-3.5" /> Notas internas
               </Label>
               <Textarea rows={2} value={f.notas_internas ?? ""} onChange={(e) => setF({ ...f, notas_internas: e.target.value })} />
               <p className="mt-1 text-xs text-muted-foreground">Solo se ven aquí en el panel. Nunca se envían por WhatsApp.</p>
@@ -240,7 +370,7 @@ function Pagina() {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
               <h2 className="text-base">Equipos ({lista.length})</h2>
               <div className="flex flex-wrap gap-1.5">
-                {["todas", ...CATEGORIAS_EQUIPO].map((c) => (
+                {["todas", ...CATEGORIAS].map((c) => (
                   <button
                     key={c}
                     onClick={() => setFiltro(c)}
@@ -271,14 +401,15 @@ function Pagina() {
                   <p className="font-mono text-sm font-semibold text-card-foreground">{e.clave}</p>
                   <p className="truncate text-sm">{e.nombre}</p>
                   <p className="text-xs text-muted-foreground">
-                    {e.categoria} · {e.fotos.length} foto(s) · Enviado {e.usos} {e.usos === 1 ? "vez" : "veces"}
+                    {e.categoria} · {e.precio != null ? pesos(Number(e.precio)) : "Precio a mano"} · {e.fotos.length} foto(s) · Enviado {e.usos}{" "}
+                    {e.usos === 1 ? "vez" : "veces"}
                     {e.ultimo_uso ? `, la última el ${fechaHora(e.ultimo_uso)}` : ""}
                   </p>
                 </div>
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Switch checked={e.activo} onCheckedChange={() => void alternar(e)} /> Visible
                 </label>
-                <Button variant="outline" size="sm" onClick={() => setF({ ...e, descripcion: e.descripcion ?? "", notas_internas: e.notas_internas ?? "" })}>
+                <Button variant="outline" size="sm" onClick={() => setF(aBorrador(e))}>
                   Editar
                 </Button>
                 <button onClick={() => void borrar(e)} className="text-destructive" aria-label="Quitar">

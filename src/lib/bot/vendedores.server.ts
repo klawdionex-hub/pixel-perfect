@@ -6,7 +6,8 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import { ETIQUETAS_DATOS, moneda } from "@/lib/afpam";
 import type { Canal } from "./motor.server";
 import type { Opcion, Salida } from "./salida";
-import { CATEGORIAS_EQUIPO, indiceCategoria, pieDeFoto } from "./equipos";
+import { atenderCotizacion } from "./cotizar.server";
+import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria, pieDeFoto } from "./equipos";
 import { enHorarioLaboral } from "./textos";
 
 type DB = SupabaseClient<Database>;
@@ -291,7 +292,7 @@ async function registrarAviso(db: DB, v: Vendedor, ahora: Date, error?: string) 
 }
 
 /** Respuesta directa a un vendedor que acaba de escribir (la ventana está abierta). */
-async function responder(canal: Canal, v: Vendedor, s: Salida) {
+export async function responder(canal: Canal, v: Vendedor, s: Salida) {
   if (!v.whatsapp) return;
   try {
     await canal.vendedor(numeroWhatsApp(v.whatsapp), v.nombre, s);
@@ -455,7 +456,8 @@ async function datosCompletos(db: DB, s: SolicitudConContacto): Promise<Salida[]
 async function guardarEstadoVendedor(db: DB, v: Vendedor, estado: EstadoVendedor) {
   const previo = (v.estado_bot ?? {}) as EstadoVendedor;
   const ultimo = previo.ultimo_aviso ?? estado.ultimo_aviso;
-  const nuevo: EstadoVendedor = { ...estado, ...(ultimo ? { ultimo_aviso: ultimo } : {}) };
+  const cot = (previo as { cot?: unknown }).cot;
+  const nuevo: EstadoVendedor = { ...estado, ...(ultimo ? { ultimo_aviso: ultimo } : {}), ...(cot ? { cot } : {}) } as EstadoVendedor;
   v.estado_bot = nuevo as unknown as Json;
   await db.from("usuarios_perfil").update({ estado_bot: nuevo as unknown as Json }).eq("id", v.id);
 }
@@ -672,6 +674,8 @@ export async function procesarMensajeVendedor(
 
   // Solo la palabra COMANDOS abre el menú.
   if (/^#?\s*comandos?[.!]?$/i.test(texto)) return enviarMenu(db, canal, v);
+  // Cotización en curso (o el botón "Hacer cotización").
+  if (await atenderCotizacion(db, canal, v, entrada, ahora)) return;
 
   // Orden del administrador: "asigna el último prospecto a Luis", "asigna 0025 a 5512345678".
   const orden = ORDEN_ASIGNAR.exec(texto);
@@ -751,6 +755,7 @@ const MENU_FIJO: Opcion[] = [
   { id: "cmd:pendientes", titulo: "Prospectos sin vendedor", descripcion: "Para tomar uno", seccion: "Mis prospectos" },
   { id: "cmd:ventas", titulo: "Ventas y comisión", descripcion: "Del mes en curso", seccion: "Mis ventas" },
   { id: "cmd:catalogo", titulo: "Catálogo de equipos", descripcion: "Fotos para enviar al cliente", seccion: "Catálogo" },
+  { id: "cmd:cotizar", titulo: "Hacer cotización", descripcion: "PDF con la plantilla de AFPAM", seccion: "Catálogo" },
 ];
 
 /** Menú principal (o la segunda página de material con "mas"). Una lista de WhatsApp admite 10 filas. */
@@ -1201,7 +1206,7 @@ type Equipo = Database["public"]["Tables"]["equipos_catalogo"]["Row"];
 async function equiposActivos(db: DB): Promise<Equipo[]> {
   const { data, error } = await db.from("equipos_catalogo").select("*").eq("activo", true).order("orden", { ascending: true });
   if (error) return [];
-  return data ?? [];
+  return (data ?? []).filter((e) => e.categoria !== CATEGORIA_SERVICIOS);
 }
 
 /** Categorías con equipos; si solo hay una, va directo a sus equipos. */

@@ -19,6 +19,8 @@ export interface Canal {
   vendedor(telefono: string, nombre: string, s: Salida): Promise<void>;
   /** Simulador: trata la ventana de 24 h como abierta (no usa plantillas). */
   siempreVentana?: boolean;
+  /** Guarda un archivo (p. ej. el PDF de una cotización) y devuelve su URL pública. */
+  guardarArchivo?: (ruta: string, bytes: Uint8Array, tipo: string) => Promise<string>;
 }
 
 export type Entrada = {

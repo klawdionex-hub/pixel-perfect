@@ -18,6 +18,10 @@ export function crearBD(inicial: Record<string, Fila[]>) {
 
   function nueva(t: string, r: Fila): Fila {
     const base: Fila = { id: `id${uid++}` };
+    if (t === "cotizaciones") {
+      const numero = (tablas["cotizaciones"]?.length ?? 0) + 1;
+      Object.assign(base, { numero, folio: `COT-${String(numero).padStart(4, "0")}` });
+    }
     if (t === "contactos") Object.assign(base, { nombre: null, municipio: null, en_estado_de_mexico: true, es_cliente: false, es_ejemplo: false });
     if (t === "solicitudes") {
       Object.assign(base, { etapa: 1, vendedor_id: null, tomada_en: null, monto_venta: null, notas: null, control_bot: {}, es_ejemplo: false, numero: seq++, creada_en: new Date(reloj.ahora.getTime() + uid).toISOString() });

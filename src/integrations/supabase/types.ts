@@ -397,8 +397,78 @@ export type Database = {
         }
         Relationships: []
       }
+      cotizaciones: {
+        Row: {
+          atencion: string | null
+          cliente_nombre: string
+          cliente_telefono: string | null
+          con_marca: boolean
+          correo: string | null
+          costo_total: number | null
+          creada_en: string
+          equipo_principal_id: string | null
+          folio: string
+          id: string
+          iva: string | null
+          numero: number
+          partidas: Json
+          pdf_url: string | null
+          proyecto: string | null
+          solicitud_id: string | null
+          total: number
+          vendedor_id: string | null
+        }
+        Insert: {
+          atencion?: string | null
+          cliente_nombre: string
+          cliente_telefono?: string | null
+          con_marca?: boolean
+          correo?: string | null
+          costo_total?: number | null
+          creada_en?: string
+          equipo_principal_id?: string | null
+          id?: string
+          iva?: string | null
+          partidas?: Json
+          pdf_url?: string | null
+          proyecto?: string | null
+          solicitud_id?: string | null
+          total?: number
+          vendedor_id?: string | null
+        }
+        Update: {
+          atencion?: string | null
+          cliente_nombre?: string
+          cliente_telefono?: string | null
+          con_marca?: boolean
+          correo?: string | null
+          costo_total?: number | null
+          creada_en?: string
+          equipo_principal_id?: string | null
+          id?: string
+          iva?: string | null
+          partidas?: Json
+          pdf_url?: string | null
+          proyecto?: string | null
+          solicitud_id?: string | null
+          total?: number
+          vendedor_id?: string | null
+        }
+        Relationships: []
+      }
       equipos_catalogo: {
         Row: {
+          alimentacion: string | null
+          capacidad: string | null
+          consumo: string | null
+          costo: number | null
+          dimensiones: string | null
+          incluye: string | null
+          marca: string | null
+          modelo: string | null
+          peso: string | null
+          precio: number | null
+          unidad: string
           activo: boolean
           categoria: string
           clave: string
@@ -413,6 +483,17 @@ export type Database = {
           usos: number
         }
         Insert: {
+          alimentacion?: string | null
+          capacidad?: string | null
+          consumo?: string | null
+          costo?: number | null
+          dimensiones?: string | null
+          incluye?: string | null
+          marca?: string | null
+          modelo?: string | null
+          peso?: string | null
+          precio?: number | null
+          unidad?: string
           activo?: boolean
           categoria?: string
           clave: string
@@ -427,6 +508,17 @@ export type Database = {
           usos?: number
         }
         Update: {
+          alimentacion?: string | null
+          capacidad?: string | null
+          consumo?: string | null
+          costo?: number | null
+          dimensiones?: string | null
+          incluye?: string | null
+          marca?: string | null
+          modelo?: string | null
+          peso?: string | null
+          precio?: number | null
+          unidad?: string
           activo?: boolean
           categoria?: string
           clave?: string
