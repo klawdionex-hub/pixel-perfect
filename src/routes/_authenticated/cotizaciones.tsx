@@ -1,8 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { FileDown } from "lucide-react";
+import { FileDown, Plus } from "lucide-react";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/components/AppLayout";
+import { FormularioCotizacion } from "@/components/FormularioCotizacion";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { fechaHora } from "@/lib/afpam";
@@ -12,7 +14,11 @@ import { claves, traerUsuarios } from "@/lib/datos";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/cotizaciones")({
-  head: () => cabeza("Cotizaciones", "Cotizaciones en PDF hechas por los vendedores desde el bot."),
+  head: () => cabeza("Cotizaciones", "Cotizaciones en PDF hechas desde el bot o desde el panel."),
+  validateSearch: (s: Record<string, unknown>): { nueva?: boolean | undefined; solicitud?: string | undefined } => ({
+    nueva: s["nueva"] === true || s["nueva"] === "true" || s["nueva"] === 1 ? true : undefined,
+    solicitud: typeof s["solicitud"] === "string" ? s["solicitud"] : undefined,
+  }),
   component: Pagina,
 });
 
@@ -34,6 +40,10 @@ type Cotizacion = {
 };
 
 function Pagina() {
+  const busquedaUrl = Route.useSearch();
+  const navigate = useNavigate();
+  const nueva = !!busquedaUrl.nueva || !!busquedaUrl.solicitud;
+  const abrirNueva = (v: boolean) => navigate({ to: "/cotizaciones", search: v ? { nueva: true } : {} });
   const q = useQuery({
     queryKey: ["cotizaciones"],
     queryFn: async () => {
@@ -63,8 +73,17 @@ function Pagina() {
     <div>
       <EncabezadoPagina
         titulo="Cotizaciones"
-        descripcion='Los vendedores las hacen desde el bot: comandos → "Hacer cotización". El PDF les llega para revisarlo antes de enviarlo al cliente.'
-        acciones={<Input placeholder="Buscar folio, cliente o prospecto" className="w-72" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />}
+        descripcion='Se hacen aquí con "Nueva cotización" o desde el bot (comandos → Hacer cotización). Revise el PDF antes de enviarlo al cliente.'
+        acciones={
+          <div className="flex items-center gap-2">
+            <Input placeholder="Buscar folio, cliente o prospecto" className="w-72" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />
+            {nueva ? null : (
+              <Button onClick={() => abrirNueva(true)}>
+                <Plus className="mr-1 h-4 w-4" /> Nueva cotización
+              </Button>
+            )}
+          </div>
+        }
       />
       <div className="space-y-4 p-8">
         {faltaTabla ? (
@@ -73,6 +92,8 @@ function Pagina() {
             Database → SQL editor.
           </p>
         ) : null}
+        {nueva ? <FormularioCotizacion solicitudInicial={busquedaUrl.solicitud} alTerminar={() => abrirNueva(false)} /> : null}
+
         <div className="flex flex-wrap items-center gap-2">
           {[{ id: "todos", nombre: "Todos" }, ...vendedores].map((u) => (
             <button

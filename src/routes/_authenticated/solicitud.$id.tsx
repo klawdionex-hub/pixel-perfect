@@ -11,8 +11,7 @@ import {
   Image as ImagenIcono,
   MessageCircle,
   UserCheck,
-  XCircle,
-} from "lucide-react";
+  XCircle, Receipt } from "lucide-react";
 import { EncabezadoPagina } from "@/components/AppLayout";
 import { DialogoAsignar, DialogoPerdido, DialogoVenta, useActualizarSolicitud, useMoverEtapa } from "@/components/AccionesSolicitud";
 import { EtapaBadge, Marca } from "@/components/EtapaBadge";
@@ -111,6 +110,12 @@ function PaginaSolicitud() {
               <Button variant="outline">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Volver
+              </Button>
+            </Link>
+            <Link to="/cotizaciones" search={{ solicitud: s.id }}>
+              <Button variant="outline">
+                <Receipt className="mr-2 h-4 w-4" />
+                Crear cotización
               </Button>
             </Link>
             <a href={enlaceWhatsApp(s.contactos?.telefono)} target="_blank" rel="noreferrer">
