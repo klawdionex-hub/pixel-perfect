@@ -217,5 +217,62 @@ reloj.ahora = new Date(reloj.ahora.getTime() + 30 * 3600000);
 await procesarRecordatorios(db, canal, reloj.ahora);
 afirmar(solDe(Z2)?.datos.abandono_en === "Tipo de portón", `se guarda dónde abandonó (${String(solDe(Z2)?.datos.abandono_en)})`);
 
+// --- Menú de comandos del vendedor
+tablas["material_venta"] = [
+  { id: "m1", titulo: "Garantía", descripcion: "Condiciones", texto: "Garantía de 1 año en instalación.", archivos: [], solo_admin: false, activo: true, orden: 1, usos: 0 },
+  { id: "m2", titulo: "Trabajos", descripcion: null, texto: null, archivos: [{ url: "https://x/t1.jpg", tipo: "imagen" }, { url: "https://x/cat.pdf", tipo: "documento", nombre: "Catálogo" }], solo_admin: false, activo: true, orden: 2, usos: 0 },
+  { id: "m3", titulo: "Cuenta bancaria", descripcion: null, texto: "Datos de depósito", archivos: [], solo_admin: true, activo: true, orden: 3, usos: 0 },
+];
+reloj.ahora = new Date(reloj.ahora.getTime() + 3600000);
+marca = log.length;
+await vendedor("v2", "comandos");
+const menuAna = log.slice(marca).find((l) => l.startsWith("VENDEDOR Ana")) ?? "";
+afirmar(menuAna.includes("Ver mis prospectos") && menuAna.includes("Ventas y comisión") && menuAna.includes("Garantía") && !menuAna.includes("Cuenta bancaria"), "COMANDOS abre el menú (sin material solo de administrador)");
+marca = log.length;
+await vendedor("v1", "menu");
+afirmar(log.slice(marca).some((l) => l.includes("Cuenta bancaria")), "el administrador ve también el material solo para administradores");
+marca = log.length;
+await vendedor("v2", "Trabajos", "mat:m2");
+const envio = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana"));
+afirmar(envio.some((l) => l.includes("[Imagen]")) && envio.some((l) => l.includes("[Documento: Catálogo]")), "el material manda fotos y PDF");
+afirmar(tablas["material_venta"]![1]!.usos === 1 && (tablas["material_uso"] ?? []).length === 1, "se registra el uso del material");
+await vendedor("v2", "Cuenta bancaria", "mat:m3");
+afirmar(log.at(-1)!.includes("ya no está disponible"), "un vendedor no puede pedir material solo de administrador");
+
+// Ver mis prospectos → ficha
+const deAna = tablas["solicitudes"]!.find((x) => x.vendedor_id === "v2" && [1, 2, 3].includes(x.etapa));
+if (!deAna) {
+  const libre = tablas["solicitudes"]!.find((x) => !x.vendedor_id && x.etapa === 1)!;
+  libre.vendedor_id = "v2";
+}
+const suya = tablas["solicitudes"]!.find((x) => x.vendedor_id === "v2" && [1, 2, 3].includes(x.etapa))!;
+marca = log.length;
+await vendedor("v2", "Ver mis prospectos", "cmd:mis");
+afirmar(log.slice(marca).some((l) => l.includes(suya.codigo)), "Ver mis prospectos lista los suyos");
+marca = log.length;
+await vendedor("v2", suya.codigo, `ficha:${suya.id}`);
+afirmar(log.slice(marca).some((l) => l.includes("Registrar resultado")), "la ficha trae el botón Registrar resultado");
+
+// Ventas del mes
+await vendedor("v2", `${suya.numero} vendido 8000`);
+marca = log.length;
+await vendedor("v2", "Ventas y comisión", "cmd:ventas");
+const ventasAna = log.slice(marca).find((l) => l.startsWith("VENDEDOR Ana")) ?? "";
+afirmar(ventasAna.includes("Ventas cerradas: 1") && ventasAna.includes("$8,000") && ventasAna.includes("$240"), "ventas y comisión del mes");
+
+// Cualquier otro texto abre el menú
+reloj.ahora = new Date(reloj.ahora.getTime() + 11 * 60000);
+marca = log.length;
+await vendedor("v2", "buenas tardes");
+afirmar(log.slice(marca).some((l) => l.includes("¿qué desea hacer?")), "cualquier mensaje del vendedor abre el menú");
+
+// Reasignar avisa al vendedor anterior
+const otraSuya = tablas["solicitudes"]!.find((x) => !x.vendedor_id && x.etapa === 1)!;
+otraSuya.vendedor_id = "v2";
+marca = log.length;
+await vendedor("v1", `asigna ${otraSuya.numero} a Carlos`);
+if (process.env["DEPURAR"]) console.log(log.slice(marca).join("\n"));
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Ana") && l.includes("que tenía asignado fue reasignado")), "al reasignar se avisa al vendedor anterior");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

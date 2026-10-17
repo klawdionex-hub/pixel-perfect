@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as PrivacidadRouteImport } from './routes/privacidad'
 import { Route as RestablecerRouteImport } from './routes/restablecer'
 import { Route as AuthenticatedCampanasRouteImport } from './routes/_authenticated/campanas'
+import { Route as AuthenticatedComandosRouteImport } from './routes/_authenticated/comandos'
 import { Route as AuthenticatedConfiguracionRouteImport } from './routes/_authenticated/configuracion'
 import { Route as AuthenticatedContactosRouteImport } from './routes/_authenticated/contactos'
 import { Route as AuthenticatedExportarRouteImport } from './routes/_authenticated/exportar'
@@ -55,6 +56,11 @@ const RestablecerRoute = RestablecerRouteImport.update({
 const AuthenticatedCampanasRoute = AuthenticatedCampanasRouteImport.update({
   id: '/campanas',
   path: '/campanas',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedComandosRoute = AuthenticatedComandosRouteImport.update({
+  id: '/comandos',
+  path: '/comandos',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedConfiguracionRoute =
@@ -127,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/privacidad': typeof PrivacidadRoute
   '/restablecer': typeof RestablecerRoute
   '/campanas': typeof AuthenticatedCampanasRoute
+  '/comandos': typeof AuthenticatedComandosRoute
   '/configuracion': typeof AuthenticatedConfiguracionRoute
   '/contactos': typeof AuthenticatedContactosRoute
   '/exportar': typeof AuthenticatedExportarRoute
@@ -146,6 +153,7 @@ export interface FileRoutesByTo {
   '/privacidad': typeof PrivacidadRoute
   '/restablecer': typeof RestablecerRoute
   '/campanas': typeof AuthenticatedCampanasRoute
+  '/comandos': typeof AuthenticatedComandosRoute
   '/configuracion': typeof AuthenticatedConfiguracionRoute
   '/contactos': typeof AuthenticatedContactosRoute
   '/exportar': typeof AuthenticatedExportarRoute
@@ -167,6 +175,7 @@ export interface FileRoutesById {
   '/privacidad': typeof PrivacidadRoute
   '/restablecer': typeof RestablecerRoute
   '/_authenticated/campanas': typeof AuthenticatedCampanasRoute
+  '/_authenticated/comandos': typeof AuthenticatedComandosRoute
   '/_authenticated/configuracion': typeof AuthenticatedConfiguracionRoute
   '/_authenticated/contactos': typeof AuthenticatedContactosRoute
   '/_authenticated/exportar': typeof AuthenticatedExportarRoute
@@ -188,6 +197,7 @@ export interface FileRouteTypes {
     | '/privacidad'
     | '/restablecer'
     | '/campanas'
+    | '/comandos'
     | '/configuracion'
     | '/contactos'
     | '/exportar'
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/privacidad'
     | '/restablecer'
     | '/campanas'
+    | '/comandos'
     | '/configuracion'
     | '/contactos'
     | '/exportar'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/privacidad'
     | '/restablecer'
     | '/_authenticated/campanas'
+    | '/_authenticated/comandos'
     | '/_authenticated/configuracion'
     | '/_authenticated/contactos'
     | '/_authenticated/exportar'
@@ -293,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/campanas'
       fullPath: '/campanas'
       preLoaderRoute: typeof AuthenticatedCampanasRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/comandos': {
+      id: '/_authenticated/comandos'
+      path: '/comandos'
+      fullPath: '/comandos'
+      preLoaderRoute: typeof AuthenticatedComandosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/configuracion': {
@@ -384,6 +403,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedCampanasRoute: typeof AuthenticatedCampanasRoute
+  AuthenticatedComandosRoute: typeof AuthenticatedComandosRoute
   AuthenticatedConfiguracionRoute: typeof AuthenticatedConfiguracionRoute
   AuthenticatedContactosRoute: typeof AuthenticatedContactosRoute
   AuthenticatedExportarRoute: typeof AuthenticatedExportarRoute
@@ -398,6 +418,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCampanasRoute: AuthenticatedCampanasRoute,
+  AuthenticatedComandosRoute: AuthenticatedComandosRoute,
   AuthenticatedConfiguracionRoute: AuthenticatedConfiguracionRoute,
   AuthenticatedContactosRoute: AuthenticatedContactosRoute,
   AuthenticatedExportarRoute: AuthenticatedExportarRoute,

@@ -451,6 +451,77 @@ export type Database = {
           },
         ]
       }
+      material_uso: {
+        Row: {
+          creado_en: string
+          id: string
+          material_id: string
+          usuario_id: string | null
+        }
+        Insert: {
+          creado_en?: string
+          id?: string
+          material_id: string
+          usuario_id?: string | null
+        }
+        Update: {
+          creado_en?: string
+          id?: string
+          material_id?: string
+          usuario_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_uso_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "material_venta"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      material_venta: {
+        Row: {
+          activo: boolean
+          archivos: Json
+          creado_en: string
+          descripcion: string | null
+          id: string
+          orden: number
+          solo_admin: boolean
+          texto: string | null
+          titulo: string
+          ultimo_uso: string | null
+          usos: number
+        }
+        Insert: {
+          activo?: boolean
+          archivos?: Json
+          creado_en?: string
+          descripcion?: string | null
+          id?: string
+          orden?: number
+          solo_admin?: boolean
+          texto?: string | null
+          titulo: string
+          ultimo_uso?: string | null
+          usos?: number
+        }
+        Update: {
+          activo?: boolean
+          archivos?: Json
+          creado_en?: string
+          descripcion?: string | null
+          id?: string
+          orden?: number
+          solo_admin?: boolean
+          texto?: string | null
+          titulo?: string
+          ultimo_uso?: string | null
+          usos?: number
+        }
+        Relationships: []
+      }
       mensajes: {
         Row: {
           autor: string

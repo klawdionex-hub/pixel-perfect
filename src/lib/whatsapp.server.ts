@@ -1,9 +1,24 @@
 // Envío de mensajes por la API oficial de WhatsApp (Meta Cloud API).
-import { normalizarOpciones, type Salida } from "@/lib/bot/salida";
+import { normalizarOpciones, type Opcion, type Salida } from "@/lib/bot/salida";
 
 export type { Salida };
 
 const VERSION = "v21.0";
+
+/** Agrupa las opciones en secciones de WhatsApp según su campo "seccion" (máximo 10 filas en total). */
+function secciones(opciones: Opcion[]) {
+  const grupos: Array<{ title: string; rows: Array<{ id: string; title: string; description?: string }> }> = [];
+  for (const o of opciones) {
+    const titulo = recortar(o.seccion ?? "Opciones", 24);
+    let g = grupos.at(-1);
+    if (!g || g.title !== titulo) {
+      g = { title: titulo, rows: [] };
+      grupos.push(g);
+    }
+    g.rows.push({ id: o.id, title: recortar(o.titulo, 24), ...(o.descripcion ? { description: recortar(o.descripcion, 72) } : {}) });
+  }
+  return grupos;
+}
 
 function recortar(t: string, n: number) {
   return t.length > n ? t.slice(0, n - 1) + "." : t;
@@ -35,11 +50,7 @@ export function cuerpoMeta(to: string, s: Salida): Record<string, unknown> {
           body: { text: s.texto },
           action: {
             button: recortar(s.boton ?? "Ver opciones", 20),
-            sections: [{ title: "Opciones", rows: normalizarOpciones(s.opciones).slice(0, 10).map((o) => ({
-              id: o.id,
-              title: recortar(o.titulo, 24),
-              ...(o.descripcion ? { description: recortar(o.descripcion, 72) } : {}),
-            })) }],
+            sections: secciones(normalizarOpciones(s.opciones).slice(0, 10)),
           },
         },
       };

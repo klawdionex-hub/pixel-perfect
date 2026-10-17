@@ -13,6 +13,7 @@ export function crearBD(inicial: Record<string, Fila[]>) {
     const parte = [8, 9].includes(x.servicio_codigo) && x.equipo_codigo ? `${x.servicio_codigo}.${x.equipo_codigo}` : String(x.servicio_codigo ?? 0);
     x.codigo = `${parte}-${x.etapa}-${String(x.numero).padStart(4, "0")}`;
     x.comision = x.monto_venta != null ? Math.round(x.monto_venta * 3) / 100 : null;
+    if ([0, 4].includes(x.etapa) && !x.resultado_en) x.resultado_en = reloj.ahora.toISOString();
   }
 
   function nueva(t: string, r: Fila): Fila {
@@ -47,6 +48,7 @@ export function crearBD(inicial: Record<string, Fila[]>) {
     in(c: string, v: any[]) { this.filtros.push((f) => v.includes(f[c])); return this; }
     not(c: string) { this.filtros.push((f) => f[c] != null); return this; }
     lt(c: string, v: any) { this.filtros.push((f) => f[c] < v); return this; }
+    gte(c: string, v: any) { this.filtros.push((f) => f[c] != null && f[c] >= v); return this; }
     order(c: string, o?: { ascending?: boolean }) { this.ord = [c, o?.ascending !== false]; return this; }
     limit(n: number) { this.lim = n; return this; }
     single() { this.modo = "single"; return this; }

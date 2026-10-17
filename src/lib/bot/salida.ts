@@ -2,7 +2,8 @@
 
 type Opc<T> = T | undefined;
 
-export type Opcion = { id: string; titulo: string; descripcion?: Opc<string> };
+/** seccion: título del grupo en una lista de WhatsApp (las opciones seguidas con la misma sección van juntas). */
+export type Opcion = { id: string; titulo: string; descripcion?: Opc<string>; seccion?: Opc<string> };
 
 export type Salida =
   | { tipo: "texto"; texto: string }

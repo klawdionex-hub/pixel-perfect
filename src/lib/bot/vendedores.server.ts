@@ -607,35 +607,6 @@ async function cerrarPerdido(db: DB, canal: Canal, v: Vendedor, solicitudId: str
   await responder(canal, v, { tipo: "texto", texto: `Registrado: ${s?.codigo ?? ""} – Perdido.` });
 }
 
-async function enviarPendientes(db: DB, canal: Canal, v: Vendedor) {
-  const { data } = await db
-    .from("solicitudes")
-    .select("*, contactos(*)")
-    .eq("vendedor_id", v.id)
-    .in("etapa", [1, 2, 3])
-    .order("creada_en", { ascending: false })
-    .limit(10);
-  const abiertas = (data ?? []) as SolicitudConContacto[];
-  const { data: sinTomar } = await db.from("solicitudes").select("id").eq("etapa", 1).is("vendedor_id", null).eq("es_ejemplo", false);
-  const ayuda =
-    "Puede actualizar un prospecto eligiéndolo de la lista, o escribiendo el número y el resultado, por ejemplo:\n0045 cotizado\n0045 vendido 12500\n0045 perdido el cliente no respondió";
-  if (!abiertas.length) {
-    await responder(canal, v, {
-      tipo: "texto",
-      texto: `Buen día, ${v.nombre}. No tiene prospectos abiertos asignados.${sinTomar?.length ? ` Hay ${sinTomar.length} prospecto(s) sin asignar.` : ""}\n\n${ayuda}`,
-    });
-    return;
-  }
-  await responder(canal, v, {
-    tipo: "lista",
-    texto: `Buen día, ${v.nombre}. Estos son sus prospectos abiertos.${sinTomar?.length ? ` Además hay ${sinTomar.length} sin asignar.` : ""}\n\n${ayuda}`,
-    boton: "Ver prospectos",
-    opciones: abiertas.map(
-      (s): Opcion => ({ id: `seg:${s.id}`, titulo: folio(s), descripcion: `${s.contactos?.nombre ?? "Sin nombre"} · ${s.contactos?.municipio ?? ""}`.trim() }),
-    ),
-  });
-}
-
 /** Procesa un mensaje de un usuario del panel (vendedor o dueño). */
 export async function procesarMensajeVendedor(
   db: DB,
@@ -649,7 +620,14 @@ export async function procesarMensajeVendedor(
 
   const id = entrada.opcionId ?? "";
   const [accion, a, b] = id.split(":");
-  if (accion === "pendientes") return enviarSinAsignar(db, canal, v);
+  if (accion === "pendientes" || id === "cmd:pendientes") return enviarSinAsignar(db, canal, v);
+  if (id === "cmd:menu") return enviarMenu(db, canal, v);
+  if (id === "cmd:mas") return enviarMenu(db, canal, v, true);
+  if (id === "cmd:mis") return enviarMisProspectos(db, canal, v, "ficha");
+  if (id === "cmd:resultado") return enviarMisProspectos(db, canal, v, "seg");
+  if (id === "cmd:ventas") return enviarMisVentas(db, canal, v, ahora);
+  if (accion === "mat" && a) return enviarMaterial(db, canal, v, a, ahora);
+  if (accion === "ficha" && a) return enviarFicha(db, canal, v, a);
   if (accion === "renovar") {
     return responder(canal, v, { tipo: "texto", texto: "Listo, seguirá recibiendo los avisos de prospectos con todos sus botones." });
   }
@@ -687,6 +665,8 @@ export async function procesarMensajeVendedor(
   // Botones de plantilla sin payload: llegan solo con el texto del botón.
   const texto = (entrada.texto ?? "").trim();
   if (/^ver la lista$/i.test(texto)) return enviarSinAsignar(db, canal, v);
+
+  if (/^#?\s*(comandos?|men[uú]|ayuda|opciones)$/i.test(texto)) return enviarMenu(db, canal, v);
 
   // Orden del administrador: "asigna el último prospecto a Luis", "asigna 0025 a 5512345678".
   const orden = ORDEN_ASIGNAR.exec(texto);
@@ -741,7 +721,153 @@ export async function procesarMensajeVendedor(
   // contestaría otra vez: la lista solo se envía una vez cada 10 minutos para no armar un ciclo.
   if (horasDesde(estado.ultima_ayuda, ahora) < 1 / 6) return;
   await guardarEstadoVendedor(db, v, { ...estado, ultima_ayuda: ahora.toISOString() });
-  return enviarPendientes(db, canal, v);
+  return enviarMenu(db, canal, v);
+}
+
+// ---------------------------------------------------------------- menú de comandos del vendedor
+
+type Material = Database["public"]["Tables"]["material_venta"]["Row"];
+type ArchivoMaterial = { url: string; tipo: "imagen" | "documento"; nombre?: string };
+
+/** Material de venta activo que puede ver este usuario (vacío si la tabla aún no existe). */
+async function materialesPara(db: DB, v: Vendedor): Promise<Material[]> {
+  const { data, error } = await db.from("material_venta").select("*").eq("activo", true).order("orden", { ascending: true });
+  if (error || !data?.length) return [];
+  const admin = data.some((m) => m.solo_admin) ? await esAdministrador(db, v) : false;
+  return data.filter((m) => admin || !m.solo_admin);
+}
+
+const MENU_FIJO: Opcion[] = [
+  { id: "cmd:mis", titulo: "Ver mis prospectos", descripcion: "Ficha y datos de cada uno", seccion: "Mis prospectos" },
+  { id: "cmd:resultado", titulo: "Registrar resultado", descripcion: "Cotizado, negociando, vendido o perdido", seccion: "Mis prospectos" },
+  { id: "cmd:pendientes", titulo: "Prospectos sin vendedor", descripcion: "Para tomar uno", seccion: "Mis prospectos" },
+  { id: "cmd:ventas", titulo: "Ventas y comisión", descripcion: "Del mes en curso", seccion: "Mis ventas" },
+];
+
+/** Menú principal (o la segunda página de material con "mas"). Una lista de WhatsApp admite 10 filas. */
+async function enviarMenu(db: DB, canal: Canal, v: Vendedor, mas = false) {
+  const materiales = await materialesPara(db, v);
+  const opcionMaterial = (m: Material): Opcion => ({
+    id: `mat:${m.id}`,
+    titulo: m.titulo,
+    ...(m.descripcion ? { descripcion: m.descripcion } : {}),
+    seccion: "Material de venta",
+  });
+  const espacio = 10 - MENU_FIJO.length;
+  const enPrimera = materiales.length > espacio ? espacio - 1 : espacio;
+  if (mas) {
+    const resto = materiales.slice(enPrimera, enPrimera + 9).map(opcionMaterial);
+    return responder(canal, v, {
+      tipo: "lista",
+      texto: "Más material de venta. Elija el que necesita.",
+      boton: "Ver material",
+      opciones: [...resto, { id: "cmd:menu", titulo: "Regresar al menú", seccion: "Material de venta" }],
+    });
+  }
+  const opciones: Opcion[] = [...MENU_FIJO, ...materiales.slice(0, enPrimera).map(opcionMaterial)];
+  if (materiales.length > enPrimera) opciones.push({ id: "cmd:mas", titulo: "Más material…", seccion: "Material de venta" });
+  return responder(canal, v, {
+    tipo: "lista",
+    texto: `${v.nombre}, ¿qué desea hacer? Elija una opción del menú.\n\nPuede abrir este menú cuando quiera escribiendo *comandos*.`,
+    boton: "Ver menú",
+    opciones,
+  });
+}
+
+/** Lista de sus prospectos abiertos: "ficha" muestra los datos, "seg" pregunta el resultado. */
+async function enviarMisProspectos(db: DB, canal: Canal, v: Vendedor, para: "ficha" | "seg") {
+  const { data } = await db
+    .from("solicitudes")
+    .select("*, contactos(*)")
+    .eq("vendedor_id", v.id)
+    .in("etapa", [1, 2, 3])
+    .order("creada_en", { ascending: false })
+    .limit(10);
+  const abiertas = (data ?? []) as SolicitudConContacto[];
+  if (!abiertas.length) {
+    return responder(canal, v, {
+      tipo: "botones",
+      texto: "No tiene prospectos abiertos asignados en este momento.",
+      opciones: [{ id: "cmd:pendientes", titulo: "Ver sin vendedor" }, { id: "cmd:menu", titulo: "Regresar al menú" }],
+    });
+  }
+  return responder(canal, v, {
+    tipo: "lista",
+    texto: para === "ficha" ? "Elija el prospecto para ver su ficha." : "¿De qué prospecto desea registrar el resultado?",
+    boton: "Ver prospectos",
+    opciones: abiertas.map(
+      (s): Opcion => ({
+        id: `${para}:${s.id}`,
+        titulo: folio(s),
+        descripcion: `${s.contactos?.nombre ?? "Sin nombre"} · ${s.contactos?.municipio ?? ""}`.trim(),
+      }),
+    ),
+  });
+}
+
+/** Ficha completa de un prospecto propio, con botón para registrar el resultado. */
+async function enviarFicha(db: DB, canal: Canal, v: Vendedor, solicitudId: string) {
+  if (await asignadoAOtro(db, canal, v, solicitudId)) return;
+  const s = await cargarSolicitud(db, solicitudId);
+  if (!s) return responder(canal, v, { tipo: "texto", texto: "No encontré ese prospecto." });
+  if (!s.vendedor_id) {
+    for (const salida of await detallesDelTrabajo(db, s)) await responder(canal, v, salida);
+    return responder(canal, v, { tipo: "botones", texto: `¿Desea tomar el prospecto ${folio(s)}?`, opciones: [{ id: `tomar:${s.id}`, titulo: "Lo tomo" }] });
+  }
+  await entregarDatos(db, canal, v, s);
+  return responder(canal, v, {
+    tipo: "botones",
+    texto: `¿Qué desea hacer con el prospecto ${folio(s)}?`,
+    opciones: [{ id: `seg:${s.id}`, titulo: "Registrar resultado" }, { id: "cmd:menu", titulo: "Regresar al menú" }],
+  });
+}
+
+/** Ventas y comisión del mes en curso (hora de Ciudad de México). */
+async function enviarMisVentas(db: DB, canal: Canal, v: Vendedor, ahora: Date) {
+  const { dia } = fechaLocal(ahora);
+  const [y, m] = dia.split("-").map(Number) as [number, number];
+  const inicio = new Date(Date.UTC(y, m - 1, 1, 6, 0)).toISOString();
+  const { data } = await db
+    .from("solicitudes")
+    .select("codigo, creada_en, monto_venta, comision, resultado_en")
+    .eq("vendedor_id", v.id)
+    .eq("etapa", 4)
+    .eq("es_ejemplo", false)
+    .gte("resultado_en", inicio)
+    .order("resultado_en", { ascending: true });
+  const ventas = data ?? [];
+  const mes = new Intl.DateTimeFormat("es-MX", { month: "long", timeZone: "America/Mexico_City" }).format(ahora);
+  const total = ventas.reduce((t, x) => t + Number(x.monto_venta ?? 0), 0);
+  const comision = ventas.reduce((t, x) => t + Number(x.comision ?? 0), 0);
+  const { data: abiertas } = await db.from("solicitudes").select("id").eq("vendedor_id", v.id).in("etapa", [1, 2, 3]);
+  const lineas = [
+    `Sus ventas de ${mes}:`,
+    `Ventas cerradas: ${ventas.length}`,
+    `Total vendido: ${moneda(total)}`,
+    `Comisión: ${moneda(comision)}`,
+    `Prospectos abiertos: ${abiertas?.length ?? 0}`,
+  ];
+  if (ventas.length) lineas.push("", ...ventas.map((x) => `${folio(x)}: ${moneda(Number(x.monto_venta ?? 0))}`));
+  return responder(canal, v, {
+    tipo: "botones",
+    texto: lineas.join("\n"),
+    opciones: [{ id: "cmd:menu", titulo: "Regresar al menú" }],
+  });
+}
+
+/** Envía el material de venta elegido y registra el uso. */
+async function enviarMaterial(db: DB, canal: Canal, v: Vendedor, materialId: string, ahora: Date) {
+  const m = (await materialesPara(db, v)).find((x) => x.id === materialId);
+  if (!m) return responder(canal, v, { tipo: "texto", texto: "Ese material ya no está disponible. Escriba *comandos* para ver el menú." });
+  const archivos = (Array.isArray(m.archivos) ? m.archivos : []) as unknown as ArchivoMaterial[];
+  if (m.texto?.trim()) await responder(canal, v, { tipo: "texto", texto: m.texto.trim() });
+  for (const a of archivos) {
+    if (a.tipo === "imagen") await responder(canal, v, { tipo: "imagen", url: a.url });
+    else await responder(canal, v, { tipo: "documento", url: a.url, nombre: a.nombre ?? m.titulo });
+  }
+  if (!m.texto?.trim() && !archivos.length) await responder(canal, v, { tipo: "texto", texto: `El material "${m.titulo}" todavía no tiene contenido.` });
+  await db.from("material_venta").update({ usos: (m.usos ?? 0) + 1, ultimo_uso: ahora.toISOString() }).eq("id", m.id);
+  await db.from("material_uso").insert({ material_id: m.id, usuario_id: v.id, creado_en: ahora.toISOString() });
 }
 
 // ---------------------------------------------------------------- asignar desde WhatsApp
@@ -791,6 +917,7 @@ async function asignarPorOrden(db: DB, canal: Canal, admin: Vendedor, numero: nu
   if (sol.vendedor_id === destino.id) {
     return responder(canal, admin, { tipo: "texto", texto: `El prospecto ${sol.codigo} ya está asignado a ${destino.nombre}.` });
   }
+  const anteriorId = sol.vendedor_id;
   const { data: anterior } = sol.vendedor_id
     ? await db.from("usuarios_perfil").select("nombre").eq("id", sol.vendedor_id).maybeSingle()
     : { data: null };
@@ -824,12 +951,18 @@ async function asignarPorOrden(db: DB, canal: Canal, admin: Vendedor, numero: nu
 
   for (const otro of await vendedoresActivos(db)) {
     if (otro.id === destino.id || otro.id === admin.id) continue;
+    const eraSuyo = otro.id === anteriorId;
     await enviarAVendedor(
       db,
       canal,
       otro,
       ahora,
-      { tipo: "texto", texto: `El prospecto ${folio(s)} (${servicio}, ${zona}) fue asignado a ${destino.nombre}. Ya no está disponible para tomarlo.` },
+      {
+        tipo: "texto",
+        texto: eraSuyo
+          ? `El prospecto ${folio(s)} (${servicio}, ${zona}) que tenía asignado fue reasignado a ${destino.nombre}. Ya no necesita darle seguimiento.`
+          : `El prospecto ${folio(s)} (${servicio}, ${zona}) fue asignado a ${destino.nombre}. Ya no está disponible para tomarlo.`,
+      },
       { nombre: PLANTILLAS_VENDEDORES.asignado, parametros: [folio(s), servicio, zona, destino.nombre] },
     );
   }
