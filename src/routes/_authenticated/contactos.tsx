@@ -13,6 +13,7 @@ import { pasarContactoAVendedores } from "@/lib/bot.functions";
 import { claves, traerContactos, traerSolicitudes, type Contacto, type Solicitud } from "@/lib/datos";
 import { enlaceWhatsApp, fechaHora, haceTiempo, telefonoBonito } from "@/lib/afpam";
 import { cabeza } from "@/lib/cabeza";
+import { NOMBRE_PASO } from "@/lib/bot/pasos";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/contactos")({
@@ -40,7 +41,12 @@ const PASOS: Record<string, string> = {
   horario: "el horario preferido",
 };
 
-type EstadoConversacion = { contacto_id: string; paso_actual: string | null; en_manos_de_vendedor: boolean };
+type EstadoConversacion = {
+  contacto_id: string;
+  paso_actual: string | null;
+  en_manos_de_vendedor: boolean;
+  ultima_actividad: string;
+};
 type Filtro = "todos" | "sin_terminar" | "con_prospecto" | "clientes";
 
 const pasoLegible = (e: EstadoConversacion | undefined) => PASOS[e?.paso_actual ?? ""] ?? e?.paso_actual ?? "";
@@ -51,7 +57,7 @@ function PaginaContactos() {
   const estados = useQuery({
     queryKey: ["estado_conversacion"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("estado_conversacion").select("contacto_id, paso_actual, en_manos_de_vendedor");
+      const { data, error } = await supabase.from("estado_conversacion").select("contacto_id, paso_actual, en_manos_de_vendedor, ultima_actividad");
       if (error) throw new Error(error.message);
       return data as EstadoConversacion[];
     },
@@ -130,6 +136,8 @@ function PaginaContactos() {
             </button>
           ))}
         </div>
+
+        <Abandono estados={estados.data ?? []} solicitudes={solicitudes.data ?? []} contactos={todos} />
 
         {conteo.sin_terminar > 0 && filtro !== "sin_terminar" ? (
           <p className="rounded-md border border-primary/50 bg-primary/10 px-4 py-2 text-sm">
@@ -359,6 +367,77 @@ function Detalle({
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * En qué pregunta dejan la encuesta los clientes (últimos 30 días): los que siguen sin terminar
+ * más los que el bot pasó a vendedores como incompletos (se guarda la pregunta en datos.abandono_en).
+ */
+function Abandono({
+  estados,
+  solicitudes,
+  contactos,
+}: {
+  estados: EstadoConversacion[];
+  solicitudes: Solicitud[];
+  contactos: Contacto[];
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const desde = Date.now() - 30 * 86400000;
+  const dePrueba = new Set(contactos.filter((c) => c.es_ejemplo || c.telefono.startsWith("sim-")).map((c) => c.id));
+  const cuenta = new Map<string, number>();
+  const sumar = (k: string) => cuenta.set(k, (cuenta.get(k) ?? 0) + 1);
+  for (const e of estados) {
+    if (!e.paso_actual || e.en_manos_de_vendedor || dePrueba.has(e.contacto_id)) continue;
+    const t = new Date(e.ultima_actividad).getTime();
+    // Solo cuenta si lleva más de una hora sin contestar (los que están contestando ahora no).
+    if (t < desde || Date.now() - t < 3600000) continue;
+    sumar(NOMBRE_PASO[e.paso_actual] ?? e.paso_actual);
+  }
+  let terminaron = 0;
+  for (const s of solicitudes) {
+    if (new Date(s.creada_en).getTime() < desde || dePrueba.has(s.contacto_id) || s.es_ejemplo) continue;
+    const en = (s.datos ?? {})["abandono_en"];
+    if (typeof en === "string" && en) sumar(en);
+    else if (s.completa) terminaron++;
+  }
+  const filas = [...cuenta.entries()].sort((a, b) => b[1] - a[1]);
+  const abandonaron = filas.reduce((t, [, n]) => t + n, 0);
+  const maximo = Math.max(1, ...filas.map(([, n]) => n));
+  const total = abandonaron + terminaron;
+
+  return (
+    <div className="rounded-md border border-border bg-card">
+      <button onClick={() => setAbierto(!abierto)} className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left">
+        <div>
+          <p className="font-semibold text-card-foreground">Dónde abandonan la encuesta</p>
+          <p className="text-xs text-muted-foreground">
+            Últimos 30 días: {terminaron} la terminaron y {abandonaron} la dejaron a medias
+            {total ? ` (${Math.round((terminaron / total) * 100)}% la termina)` : ""}.
+          </p>
+        </div>
+        <ChevronDown className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", abierto && "rotate-180")} />
+      </button>
+      {abierto ? (
+        <div className="space-y-2 border-t border-border px-4 py-4">
+          {filas.length === 0 ? <p className="text-sm text-muted-foreground">Nadie ha dejado la encuesta a medias en este periodo.</p> : null}
+          {filas.map(([paso, n]) => (
+            <div key={paso} className="grid grid-cols-[10rem_1fr_2.5rem] items-center gap-3 text-sm">
+              <span className="truncate text-card-foreground">{paso}</span>
+              <div className="h-3 rounded-full bg-muted">
+                <div className="h-3 rounded-full bg-primary" style={{ width: `${(n / maximo) * 100}%` }} />
+              </div>
+              <span className="text-right font-semibold tabular-nums">{n}</span>
+            </div>
+          ))}
+          <p className="pt-1 text-xs text-muted-foreground">
+            Cuenta la pregunta en la que cada cliente dejó de contestar. La pregunta con la barra más larga es la primera que
+            conviene simplificar.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

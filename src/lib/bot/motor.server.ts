@@ -6,6 +6,8 @@ import { normalizarOpciones, textoDeSalida, type Opcion, type Salida } from "./s
 import { enHorarioLaboral, horaDeEscribirClientes, texto, type ClaveTexto, type ConfigBot } from "./textos";
 import { avisarNuevoProspecto, reenviarMensajeCliente, tareasVendedores } from "./vendedores.server";
 import { leerCoordenadas } from "./coordenadas";
+import { zonaDeMunicipio } from "./municipios";
+import { NOMBRE_PASO } from "./pasos";
 
 type DB = SupabaseClient<Database>;
 
@@ -33,11 +35,23 @@ export type Entrada = {
 type Contacto = Database["public"]["Tables"]["contactos"]["Row"];
 type Servicio = Database["public"]["Tables"]["servicios"]["Row"];
 
-type Flujo = "instalacion" | "reparacion" | "mantenimiento";
+type Flujo = "instalacion" | "reparacion" | "mantenimiento" | "compra";
+
+/** Código del servicio "Compra de equipo" (la opción aparece en el menú solo si existe en la tabla servicios). */
+const SERVICIO_COMPRA = 10;
 
 type Respuestas = Partial<
   Record<
-    "tiene_porton" | "medidas" | "material" | "marca_motor" | "falla" | "ultimo_mantenimiento" | "horario_preferido",
+    | "tiene_porton"
+    | "medidas"
+    | "material"
+    | "marca_motor"
+    | "falla"
+    | "ultimo_mantenimiento"
+    | "horario_preferido"
+    | "equipo_compra"
+    | "zona"
+    | "abandono_en",
     string
   >
 >;
@@ -160,6 +174,22 @@ const MENU: Opcion[] = [
   { id: "m_ases", titulo: "Hablar con un asesor" },
 ];
 
+const OPCION_COMPRA: Opcion = { id: "m_compra", titulo: "Compra de equipo", descripcion: "Motores, pistones y refacciones" };
+
+/** Menú principal; "Compra de equipo" va en cuarto lugar si el servicio 10 está dado de alta y activo. */
+function menuDe(ses: Sesion): Opcion[] {
+  const compra = ses.servicios.some((sv) => sv.codigo === SERVICIO_COMPRA && sv.activo);
+  return compra ? [...MENU.slice(0, 3), OPCION_COMPRA, ...MENU.slice(3)] : MENU;
+}
+
+const EQUIPOS_COMPRA: Opcion[] = [
+  { id: "ec_cadena", titulo: "Motor de cadena" },
+  { id: "ec_pistones", titulo: "Pistones" },
+  { id: "ec_cremallera", titulo: "Motor de cremallera" },
+  { id: "ec_cortina", titulo: "Motor para cortina" },
+  { id: "ec_otro", titulo: "Otro", descripcion: "Controles, refacciones u otro equipo" },
+];
+
 const TIENE_PORTON: Opcion[] = [
   { id: "tp_si", titulo: "Sí, ya lo tengo" },
   { id: "tp_fab", titulo: "Requiero fabricación" },
@@ -272,6 +302,7 @@ type Paso =
   | "material"
   | "foto"
   | "equipo"
+  | "equipo_compra"
   | "marca"
   | "falla"
   | "urgente"
@@ -284,7 +315,7 @@ function preguntaDe(ses: Sesion, paso: Paso): Salida {
     case "nombre":
       return { tipo: "texto", texto: t("saludo") };
     case "menu":
-      return { tipo: "lista", texto: t("menu"), boton: "Ver opciones", opciones: MENU };
+      return { tipo: "lista", texto: t("menu"), boton: "Ver opciones", opciones: menuDe(ses) };
     case "regreso": {
       const opciones: Opcion[] = [{ id: "r_nueva", titulo: "Nueva solicitud" }];
       if (ses.estado.solicitud_id) opciones.push({ id: "r_seg", titulo: "Seguimiento" });
@@ -305,6 +336,8 @@ function preguntaDe(ses: Sesion, paso: Paso): Salida {
       return { tipo: "lista", texto: t("pregunta_material"), boton: "Ver materiales", opciones: MATERIALES };
     case "foto":
       return { tipo: "botones", texto: t("pregunta_foto"), opciones: OMITIR };
+    case "equipo_compra":
+      return { tipo: "lista", texto: t("pregunta_equipo_compra"), boton: "Ver equipos", opciones: EQUIPOS_COMPRA };
     case "equipo":
       return { tipo: "lista", texto: t("pregunta_equipo"), boton: "Ver equipos", opciones: opcionesEquipos(ses.servicios) };
     case "marca":
@@ -336,10 +369,12 @@ function pasoDeServicio(ses: Sesion): Paso {
   return ses.estado.datos.flujo === "instalacion" ? "tipo_instalacion" : "equipo";
 }
 
+// La zona se deduce del municipio y el material ya no se pregunta (la encuesta larga hacía que la abandonaran).
 const PASOS_ENCUESTA: Record<Flujo, Paso[]> = {
-  instalacion: ["zona", "municipio", "tipo_instalacion", "tiene_porton", "medidas", "material", "foto", "horario"],
-  reparacion: ["zona", "municipio", "equipo", "marca", "falla", "urgente", "foto", "horario"],
-  mantenimiento: ["zona", "municipio", "equipo", "marca", "ultimo_mantenimiento", "horario"],
+  instalacion: ["municipio", "tipo_instalacion", "tiene_porton", "medidas", "foto", "horario"],
+  reparacion: ["municipio", "equipo", "marca", "falla", "urgente", "foto", "horario"],
+  mantenimiento: ["municipio", "equipo", "marca", "ultimo_mantenimiento", "horario"],
+  compra: ["equipo_compra", "municipio"],
 };
 
 function iniciarFlujo(ses: Sesion, flujo: Flujo): Paso {
@@ -347,21 +382,27 @@ function iniciarFlujo(ses: Sesion, flujo: Flujo): Paso {
   const conMunicipio = !!ses.contacto.municipio;
   ses.estado.datos = {
     flujo,
-    servicio: flujo === "reparacion" ? 8 : flujo === "mantenimiento" ? 9 : undefined,
+    servicio: flujo === "reparacion" ? 8 : flujo === "mantenimiento" ? 9 : flujo === "compra" ? SERVICIO_COMPRA : undefined,
     respuestas: {},
-    encuesta: { pasos: PASOS_ENCUESTA[flujo].filter((p) => !conMunicipio || (p !== "zona" && p !== "municipio")) },
+    encuesta: { pasos: PASOS_ENCUESTA[flujo].filter((p) => !conMunicipio || p !== "municipio") },
   };
-  return conMunicipio ? pasoDeServicio(ses) : "zona";
+  if (flujo === "compra") return "equipo_compra";
+  return conMunicipio ? pasoDeServicio(ses) : "municipio";
 }
 
-const NOMBRE_FLUJO: Record<Flujo, string> = { instalacion: "instalación", reparacion: "reparación", mantenimiento: "mantenimiento" };
+const NOMBRE_FLUJO: Record<Flujo, string> = {
+  instalacion: "instalación",
+  reparacion: "reparación",
+  mantenimiento: "mantenimiento",
+  compra: "equipo",
+};
 
 /** Antes de la primera pregunta avisa cuántas son; en cada una agrega "Pregunta 2 de 8". */
 async function avisoYContador(ses: Sesion, paso: Paso, salida: Salida): Promise<Salida> {
   const enc = ses.estado.datos.encuesta;
   const flujo = ses.estado.datos.flujo;
   const i = enc ? enc.pasos.indexOf(paso) : -1;
-  if (!enc || !flujo || i < 0) return salida;
+  if (!enc || !flujo || i < 0 || enc.pasos.length < 2) return salida;
   if (!enc.avisada) {
     enc.avisada = true;
     await enviar(ses, {
@@ -466,11 +507,12 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
         }
         return "invalido";
       }
-      const o = elegir(e, MENU);
+      const o = elegir(e, menuDe(ses));
       if (!o) return "invalido";
       if (o.id === "m_inst") return iniciarFlujo(ses, "instalacion");
       if (o.id === "m_rep") return iniciarFlujo(ses, "reparacion");
       if (o.id === "m_mant") return iniciarFlujo(ses, "mantenimiento");
+      if (o.id === "m_compra") return iniciarFlujo(ses, "compra");
       if (o.id === "m_ases") return "asesor";
       await enviarInformacion(ses, o.id);
       return "menu";
@@ -487,8 +529,30 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
       const m = textoLibre(e, 120);
       if (!m) return "invalido";
       ses.contacto.municipio = m;
-      await ses.db.from("contactos").update({ municipio: m }).eq("id", ses.contacto.id);
-      return pasoDeServicio(ses);
+      // La zona ya no se pregunta: se deduce del municipio.
+      const zona = zonaDeMunicipio(m);
+      const cambios: { municipio: string; en_estado_de_mexico?: boolean } = { municipio: m };
+      if (zona === "edomex") cambios.en_estado_de_mexico = true;
+      if (zona === "fuera") {
+        cambios.en_estado_de_mexico = false;
+        ses.estado.datos.fuera_de_zona = true;
+        // En compra de equipo puede haber envío; en instalación se avisa que la cobertura es el Estado de México.
+        if (ses.estado.datos.flujo !== "compra") await enviar(ses, { tipo: "texto", texto: texto(ses.config, "fuera_de_zona") });
+      }
+      if (zona === "desconocida") r.zona = "Por confirmar";
+      ses.contacto.en_estado_de_mexico = cambios.en_estado_de_mexico ?? ses.contacto.en_estado_de_mexico;
+      await ses.db.from("contactos").update(cambios).eq("id", ses.contacto.id);
+      return ses.estado.datos.flujo === "compra" ? "cerrar" : pasoDeServicio(ses);
+    }
+    case "equipo_compra": {
+      const o = elegir(e, EQUIPOS_COMPRA);
+      if (o) r.equipo_compra = o.id === "ec_otro" ? "Otro (controles, refacciones u otro equipo)" : o.titulo;
+      else {
+        const t = textoLibre(e, 80);
+        if (!t) return "invalido";
+        r.equipo_compra = t;
+      }
+      return ses.contacto.municipio ? "cerrar" : "municipio";
     }
     case "tipo_instalacion": {
       const o = elegir(e, opcionesInstalacion(ses.servicios));
@@ -507,7 +571,7 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
       const m = textoLibre(e, 120);
       if (!m) return "invalido";
       r.medidas = m;
-      return "material";
+      return "foto";
     }
     case "material": {
       const o = elegir(e, MATERIALES);
@@ -631,7 +695,12 @@ async function cerrarSolicitud(ses: Sesion) {
 }
 
 /** Pasa la conversación a los vendedores. `silencioso` = sin mensaje al cliente (p. ej. por inactividad). */
+
 async function pasarAAsesor(ses: Sesion, silencioso = false) {
+  // Si pasa por inactividad (o desde el panel), se guarda en qué pregunta se quedó.
+  if (silencioso && ses.estado.paso_actual) {
+    respuestas(ses).abandono_en = NOMBRE_PASO[ses.estado.paso_actual] ?? ses.estado.paso_actual;
+  }
   const abierta = !ses.estado.datos.flujo ? await solicitudAbierta(ses) : null;
   if (!silencioso) await enviar(ses, { tipo: "texto", texto: texto(ses.config, "traspaso_asesor") });
   if (abierta) {

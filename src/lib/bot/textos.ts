@@ -16,6 +16,7 @@ export type ClaveTexto =
   | "pregunta_material"
   | "pregunta_foto"
   | "pregunta_equipo"
+  | "pregunta_equipo_compra"
   | "pregunta_marca"
   | "pregunta_falla"
   | "pregunta_urgente"
@@ -56,7 +57,7 @@ export const TEXTOS: Record<ClaveTexto, DefTexto> = {
   intro_encuesta: {
     etiqueta: "Aviso antes de empezar las preguntas ({servicio}, {total} = número de preguntas)",
     porDefecto:
-      "Para preparar su cotización de {servicio} le haré {total} preguntas breves; le tomará uno o dos minutos.\n\nLe pedimos contestarlas todas: con esa información su asesor podrá atenderle más rápido y darle un precio más preciso, sin tener que volver a preguntarle.",
+      "Para preparar su cotización de {servicio} le haré {total} preguntas breves; le tomará alrededor de un minuto.\n\nLe pedimos contestarlas todas: con esa información su asesor podrá atenderle más rápido y darle un precio más preciso, sin tener que volver a preguntarle.",
   },
   pregunta_zona: {
     etiqueta: "Pregunta de zona",
@@ -106,6 +107,10 @@ export const TEXTOS: Record<ClaveTexto, DefTexto> = {
   pregunta_equipo: {
     etiqueta: "Pregunta del tipo de equipo (reparación y mantenimiento)",
     porDefecto: "Indique el tipo de equipo que requiere atención.",
+  },
+  pregunta_equipo_compra: {
+    etiqueta: "Pregunta del equipo a comprar (Compra de equipo)",
+    porDefecto: "Indique el equipo que le interesa.",
   },
   pregunta_marca: {
     etiqueta: "Pregunta de marca del motor",

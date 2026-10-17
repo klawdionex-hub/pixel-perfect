@@ -120,6 +120,9 @@ export const ETIQUETAS_DATOS: Record<string, string> = {
   falla: "Falla reportada",
   ultimo_mantenimiento: "Último mantenimiento",
   horario_preferido: "Horario preferido",
+  equipo_compra: "Equipo solicitado",
+  zona: "Zona",
+  abandono_en: "Dejó la encuesta en",
   color: "Color",
   observaciones: "Observaciones",
 };

@@ -4,7 +4,7 @@ import { procesarMensajeVendedor, tareasVendedores } from "@/lib/bot/vendedores.
 import { textoDeSalida, type Salida } from "@/lib/bot/salida";
 import { crearBD } from "./bd-falsa";
 
-const servicios = ["Abatible hacia afuera", "Abatible hacia adentro", "Elevadizo con paneles tipo americano", "Corredizo", "Plegadizas", "De maroma", "Cortina eléctrica", "Reparación", "Mantenimiento"].map(
+const servicios = ["Abatible hacia afuera", "Abatible hacia adentro", "Elevadizo con paneles tipo americano", "Corredizo", "Plegadizas", "De maroma", "Cortina eléctrica", "Reparación", "Mantenimiento", "Compra de equipo"].map(
   (nombre, i) => ({ codigo: i + 1, nombre, activo: true, catalogo_url: null, porcentaje_comision: 3 }),
 );
 const { db, tablas, reloj } = crearBD({
@@ -47,21 +47,21 @@ const config = tablas["configuracion"]![0]!;
 
 // --- Flujo completo de instalación
 const A = "+525511111111";
-for (const t of ["Hola", "juan pérez", "1", "si", "Texcoco, San Lorenzo", "elevadizo", "Sí, ya lo tengo", "4 x 2.4 m", "3", "omitir", "tarde"]) await cliente(A, t);
+for (const t of ["Hola", "juan pérez", "1", "Texcoco, San Lorenzo", "elevadizo", "Sí, ya lo tengo", "4 x 2.4 m", "omitir", "tarde"]) await cliente(A, t);
 const sA = solDe(A);
-afirmar(sA?.codigo === "3-1-0001" && sA.completa && sA.datos.material === "Lámina", `instalación crea folio ${sA?.codigo}`);
+afirmar(sA?.codigo === "3-1-0001" && sA.completa && !sA.datos.material && sA.datos.medidas === "4 x 2.4 m", `instalación crea folio ${sA?.codigo}`);
 afirmar(log.some((l) => l.includes("folio 3-1-0001")), "cierre con folio");
 const avisos = log.filter((l) => l.startsWith("VENDEDOR") && l.includes("afpam_solicitud_recibida"));
 afirmar(avisos.length === 2 && avisos.every((l) => !l.includes("Juan") && !l.includes("551 111")), "aviso a 2 vendedores sin datos de contacto");
 
-afirmar(log.some((l) => l.includes("le haré 8 preguntas breves")), "aviso de cuántas preguntas antes de empezar");
-afirmar(log.some((l) => l.includes("Pregunta 1 de 8")) && log.some((l) => l.includes("Pregunta 8 de 8")), "contador en cada pregunta");
+afirmar(log.some((l) => l.includes("le haré 6 preguntas breves")), "aviso de cuántas preguntas antes de empezar");
+afirmar(log.some((l) => l.includes("Pregunta 1 de 6")) && log.some((l) => l.includes("Pregunta 6 de 6")), "contador en cada pregunta");
 if (process.env["VER_CONVERSACION"]) console.log(log.filter((l) => !l.startsWith("VENDEDOR")).slice(0, 30).join("\n"));
 
 // --- Lo tomo y venta
 tablas["usuarios_perfil"]![0]!.ultimo_mensaje_wa = reloj.ahora.toISOString();
 await vendedor("v1", "Lo tomo", `tomar:${sA!.id}`);
-afirmar(sA!.vendedor_id === "v1" && log.some((l) => l.includes(`[Contacto] ${sA!.codigo} Juan`)), "Lo tomo asigna y manda tarjeta");
+afirmar(sA!.vendedor_id === "v1" && log.some((l) => l.includes(`${sA!.codigo} Juan`) && l.includes("[Contacto] ")), "Lo tomo asigna y manda tarjeta");
 await vendedor("v2", "0001 vendido 9000");
 afirmar(sA!.etapa === 1 && log.at(-1)!.includes("asignado a Carlos"), "otro vendedor no puede cerrar prospecto ajeno");
 await vendedor("v1", "0001 vendido 12500");
@@ -110,7 +110,7 @@ config.latitud = 19.51; config.longitud = -98.88;
 // --- Invitación a reseña al cerrar
 config.link_resena_google = "https://g.page/r/afpam/review";
 const R = "+525596666666";
-for (const t of ["Hola", "Rosa", "1", "si", "Texcoco", "elevadizo", "Sí, ya lo tengo", "4 x 2.4 m", "3", "omitir", "tarde"]) await cliente(R, t);
+for (const t of ["Hola", "Rosa", "1", "Texcoco", "elevadizo", "Sí, ya lo tengo", "4 x 2.4 m", "omitir", "tarde"]) await cliente(R, t);
 afirmar(log.some((l) => l.includes("califique en Google: https://g.page/r/afpam/review")), "invitación a calificar en Google al cerrar");
 
 
@@ -191,6 +191,31 @@ await tareasVendedores(db, canal, new Date(reloj.ahora.getTime() + 600000));
 afirmar(!log.slice(marca).some((l) => /esumen del d|pendientes_del_dia/.test(l)), "el resumen se manda una sola vez al día");
 await vendedor("v1", "Ver la lista", "pendientes");
 afirmar(log.at(-1)!.includes("sin vendedor"), "el botón Ver la lista muestra los prospectos sin vendedor");
+
+// --- Compra de equipo
+reloj.ahora = new Date("2026-10-19T17:00:00Z"); // lunes 11:00 CDMX
+const CE = "+525593333333";
+marca = log.length;
+for (const t of ["Hola", "Pedro", "Compra de equipo", "Motor de cremallera", "Chalco"]) await cliente(CE, t);
+const sCE = solDe(CE);
+afirmar(sCE?.codigo?.startsWith("10-1-") && sCE.datos.equipo_compra === "Motor de cremallera" && sCE.completa, `compra de equipo crea folio ${sCE?.codigo}`);
+afirmar(log.slice(marca).some((l) => l.includes("Pregunta 2 de 2")), "compra de equipo: 2 preguntas con contador");
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR") && l.includes("Compra de equipo: Motor de cremallera")), "el vendedor recibe el equipo solicitado");
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR") && l.includes("19/10/26 · 10-1-")), "el folio para vendedores lleva la fecha");
+
+// --- Zona deducida del municipio
+const Z1 = "+525592222222";
+for (const t of ["Hola", "Lucía", "1", "Iztapalapa, CDMX"]) await cliente(Z1, t);
+afirmar(log.at(-2)!.includes("Estado de México") && tablas["contactos"]!.find((c) => c.telefono === Z1)!.en_estado_de_mexico === false, "municipio de CDMX se marca fuera de zona sin preguntar");
+const Z2 = "+525591111111";
+for (const t of ["Hola", "Marta", "1", "Rancho El Mirador"]) await cliente(Z2, t);
+const estZ2 = tablas["estado_conversacion"]!.find((e) => e.contacto_id === tablas["contactos"]!.find((c) => c.telefono === Z2)!.id)!;
+afirmar((estZ2.datos as { respuestas?: { zona?: string } }).respuestas?.zona === "Por confirmar", "municipio no reconocido queda como zona por confirmar");
+
+// --- Se registra en qué pregunta se quedó
+reloj.ahora = new Date(reloj.ahora.getTime() + 30 * 3600000);
+await procesarRecordatorios(db, canal, reloj.ahora);
+afirmar(solDe(Z2)?.datos.abandono_en === "Tipo de portón", `se guarda dónde abandonó (${String(solDe(Z2)?.datos.abandono_en)})`);
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;
