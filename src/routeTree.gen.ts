@@ -18,6 +18,7 @@ import { Route as AuthenticatedCampanasRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedComandosRouteImport } from './routes/_authenticated/comandos'
 import { Route as AuthenticatedConfiguracionRouteImport } from './routes/_authenticated/configuracion'
 import { Route as AuthenticatedContactosRouteImport } from './routes/_authenticated/contactos'
+import { Route as AuthenticatedEquiposRouteImport } from './routes/_authenticated/equipos'
 import { Route as AuthenticatedExportarRouteImport } from './routes/_authenticated/exportar'
 import { Route as AuthenticatedPanelRouteImport } from './routes/_authenticated/panel'
 import { Route as AuthenticatedPlantillasRouteImport } from './routes/_authenticated/plantillas'
@@ -72,6 +73,11 @@ const AuthenticatedConfiguracionRoute =
 const AuthenticatedContactosRoute = AuthenticatedContactosRouteImport.update({
   id: '/contactos',
   path: '/contactos',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedEquiposRoute = AuthenticatedEquiposRouteImport.update({
+  id: '/equipos',
+  path: '/equipos',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedExportarRoute = AuthenticatedExportarRouteImport.update({
@@ -136,6 +142,7 @@ export interface FileRoutesByFullPath {
   '/comandos': typeof AuthenticatedComandosRoute
   '/configuracion': typeof AuthenticatedConfiguracionRoute
   '/contactos': typeof AuthenticatedContactosRoute
+  '/equipos': typeof AuthenticatedEquiposRoute
   '/exportar': typeof AuthenticatedExportarRoute
   '/panel': typeof AuthenticatedPanelRoute
   '/plantillas': typeof AuthenticatedPlantillasRoute
@@ -156,6 +163,7 @@ export interface FileRoutesByTo {
   '/comandos': typeof AuthenticatedComandosRoute
   '/configuracion': typeof AuthenticatedConfiguracionRoute
   '/contactos': typeof AuthenticatedContactosRoute
+  '/equipos': typeof AuthenticatedEquiposRoute
   '/exportar': typeof AuthenticatedExportarRoute
   '/panel': typeof AuthenticatedPanelRoute
   '/plantillas': typeof AuthenticatedPlantillasRoute
@@ -178,6 +186,7 @@ export interface FileRoutesById {
   '/_authenticated/comandos': typeof AuthenticatedComandosRoute
   '/_authenticated/configuracion': typeof AuthenticatedConfiguracionRoute
   '/_authenticated/contactos': typeof AuthenticatedContactosRoute
+  '/_authenticated/equipos': typeof AuthenticatedEquiposRoute
   '/_authenticated/exportar': typeof AuthenticatedExportarRoute
   '/_authenticated/panel': typeof AuthenticatedPanelRoute
   '/_authenticated/plantillas': typeof AuthenticatedPlantillasRoute
@@ -200,6 +209,7 @@ export interface FileRouteTypes {
     | '/comandos'
     | '/configuracion'
     | '/contactos'
+    | '/equipos'
     | '/exportar'
     | '/panel'
     | '/plantillas'
@@ -220,6 +230,7 @@ export interface FileRouteTypes {
     | '/comandos'
     | '/configuracion'
     | '/contactos'
+    | '/equipos'
     | '/exportar'
     | '/panel'
     | '/plantillas'
@@ -241,6 +252,7 @@ export interface FileRouteTypes {
     | '/_authenticated/comandos'
     | '/_authenticated/configuracion'
     | '/_authenticated/contactos'
+    | '/_authenticated/equipos'
     | '/_authenticated/exportar'
     | '/_authenticated/panel'
     | '/_authenticated/plantillas'
@@ -328,6 +340,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedContactosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/equipos': {
+      id: '/_authenticated/equipos'
+      path: '/equipos'
+      fullPath: '/equipos'
+      preLoaderRoute: typeof AuthenticatedEquiposRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/exportar': {
       id: '/_authenticated/exportar'
       path: '/exportar'
@@ -406,6 +425,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedComandosRoute: typeof AuthenticatedComandosRoute
   AuthenticatedConfiguracionRoute: typeof AuthenticatedConfiguracionRoute
   AuthenticatedContactosRoute: typeof AuthenticatedContactosRoute
+  AuthenticatedEquiposRoute: typeof AuthenticatedEquiposRoute
   AuthenticatedExportarRoute: typeof AuthenticatedExportarRoute
   AuthenticatedPanelRoute: typeof AuthenticatedPanelRoute
   AuthenticatedPlantillasRoute: typeof AuthenticatedPlantillasRoute
@@ -421,6 +441,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedComandosRoute: AuthenticatedComandosRoute,
   AuthenticatedConfiguracionRoute: AuthenticatedConfiguracionRoute,
   AuthenticatedContactosRoute: AuthenticatedContactosRoute,
+  AuthenticatedEquiposRoute: AuthenticatedEquiposRoute,
   AuthenticatedExportarRoute: AuthenticatedExportarRoute,
   AuthenticatedPanelRoute: AuthenticatedPanelRoute,
   AuthenticatedPlantillasRoute: AuthenticatedPlantillasRoute,

@@ -6,6 +6,7 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import { ETIQUETAS_DATOS, moneda } from "@/lib/afpam";
 import type { Canal } from "./motor.server";
 import type { Opcion, Salida } from "./salida";
+import { CATEGORIAS_EQUIPO, indiceCategoria, pieDeFoto } from "./equipos";
 import { enHorarioLaboral } from "./textos";
 
 type DB = SupabaseClient<Database>;
@@ -627,6 +628,9 @@ export async function procesarMensajeVendedor(
   if (id === "cmd:resultado") return enviarMisProspectos(db, canal, v, "seg");
   if (id === "cmd:ventas") return enviarMisVentas(db, canal, v, ahora);
   if (accion === "mat" && a) return enviarMaterial(db, canal, v, a, ahora);
+  if (id === "cmd:catalogo") return enviarCategorias(db, canal, v);
+  if (accion === "cat" && a) return enviarEquiposDeCategoria(db, canal, v, Number(a), Number(b ?? 0));
+  if (accion === "eq" && a) return enviarEquipo(db, canal, v, a, ahora);
   if (accion === "ficha" && a) return enviarFicha(db, canal, v, a);
   if (accion === "renovar") {
     return responder(canal, v, { tipo: "texto", texto: "Listo, seguirá recibiendo los avisos de prospectos con todos sus botones." });
@@ -746,6 +750,7 @@ const MENU_FIJO: Opcion[] = [
   { id: "cmd:resultado", titulo: "Registrar resultado", descripcion: "Cotizado, negociando, vendido o perdido", seccion: "Mis prospectos" },
   { id: "cmd:pendientes", titulo: "Prospectos sin vendedor", descripcion: "Para tomar uno", seccion: "Mis prospectos" },
   { id: "cmd:ventas", titulo: "Ventas y comisión", descripcion: "Del mes en curso", seccion: "Mis ventas" },
+  { id: "cmd:catalogo", titulo: "Catálogo de equipos", descripcion: "Fotos para enviar al cliente", seccion: "Catálogo" },
 ];
 
 /** Menú principal (o la segunda página de material con "mas"). Una lista de WhatsApp admite 10 filas. */
@@ -1187,4 +1192,75 @@ export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date())
     resumen.seguimientos++;
   }
   return resumen;
+}
+
+// ---------------------------------------------------------------- catálogo de equipos
+
+type Equipo = Database["public"]["Tables"]["equipos_catalogo"]["Row"];
+
+async function equiposActivos(db: DB): Promise<Equipo[]> {
+  const { data, error } = await db.from("equipos_catalogo").select("*").eq("activo", true).order("orden", { ascending: true });
+  if (error) return [];
+  return data ?? [];
+}
+
+/** Categorías con equipos; si solo hay una, va directo a sus equipos. */
+async function enviarCategorias(db: DB, canal: Canal, v: Vendedor): Promise<void> {
+  const equipos = await equiposActivos(db);
+  if (!equipos.length) {
+    return responder(canal, v, {
+      tipo: "botones",
+      texto: "Todavía no hay equipos en el catálogo. Se dan de alta en el panel, en la pestaña Catálogo de equipos.",
+      opciones: [{ id: "cmd:menu", titulo: "Regresar al menú" }],
+    });
+  }
+  const conteo = CATEGORIAS_EQUIPO.map((_, i) => equipos.filter((e) => indiceCategoria(e.categoria) === i).length);
+  const usadas = conteo.map((n, i) => ({ n, i })).filter((x) => x.n > 0);
+  if (usadas.length === 1) return enviarEquiposDeCategoria(db, canal, v, usadas[0]!.i, 0);
+  return responder(canal, v, {
+    tipo: "lista",
+    texto: "Catálogo de equipos. Elija la categoría.",
+    boton: "Ver categorías",
+    opciones: [
+      ...usadas.map(({ n, i }): Opcion => ({ id: `cat:${i}`, titulo: CATEGORIAS_EQUIPO[i]!, descripcion: `${n} equipo(s)` })),
+      { id: "cmd:menu", titulo: "Regresar al menú" },
+    ],
+  });
+}
+
+/** Equipos de una categoría, de 8 en 8 (una lista de WhatsApp admite 10 filas). */
+async function enviarEquiposDeCategoria(db: DB, canal: Canal, v: Vendedor, categoria: number, pagina: number): Promise<void> {
+  const todos = (await equiposActivos(db)).filter((e) => indiceCategoria(e.categoria) === categoria);
+  if (!todos.length) return enviarCategorias(db, canal, v);
+  const POR_PAGINA = 8;
+  const desde = Math.max(0, pagina) * POR_PAGINA;
+  const estos = todos.slice(desde, desde + POR_PAGINA);
+  const opciones: Opcion[] = estos.map((e) => ({ id: `eq:${e.id}`, titulo: e.clave, descripcion: e.nombre }));
+  if (desde + POR_PAGINA < todos.length) opciones.push({ id: `cat:${categoria}:${pagina + 1}`, titulo: "Ver más equipos" });
+  opciones.push({ id: "cmd:catalogo", titulo: "Otra categoría" });
+  return responder(canal, v, {
+    tipo: "lista",
+    texto: `${CATEGORIAS_EQUIPO[categoria]}: elija el equipo. Le enviaré sus fotos listas para reenviar al cliente.`,
+    boton: "Ver equipos",
+    opciones,
+  });
+}
+
+/** Fotos del equipo con el pie listo para reenviar (sin marca ni modelo). */
+async function enviarEquipo(db: DB, canal: Canal, v: Vendedor, equipoId: string, ahora: Date) {
+  const e = (await equiposActivos(db)).find((x) => x.id === equipoId);
+  if (!e) return responder(canal, v, { tipo: "texto", texto: "Ese equipo ya no está en el catálogo. Escriba *comandos* para ver el menú." });
+  const fotos = ((Array.isArray(e.fotos) ? e.fotos : []) as unknown as Array<{ url: string }>).filter((f) => f?.url);
+  const pie = pieDeFoto(e);
+  if (!fotos.length) await responder(canal, v, { tipo: "texto", texto: `${pie}\n\n(Este equipo todavía no tiene fotos.)` });
+  for (const [i, f] of fotos.entries()) await responder(canal, v, { tipo: "imagen", url: f.url, ...(i === 0 ? { texto: pie } : {}) });
+  await db.from("equipos_catalogo").update({ usos: (e.usos ?? 0) + 1, ultimo_uso: ahora.toISOString() }).eq("id", e.id);
+  return responder(canal, v, {
+    tipo: "botones",
+    texto: "Puede reenviar las fotos al cliente manteniéndolas presionadas y eligiendo Reenviar.",
+    opciones: [
+      { id: `cat:${indiceCategoria(e.categoria)}`, titulo: "Otro equipo" },
+      { id: "cmd:menu", titulo: "Regresar al menú" },
+    ],
+  });
 }

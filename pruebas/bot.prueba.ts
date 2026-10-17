@@ -274,5 +274,26 @@ await vendedor("v1", `asigna ${otraSuya.numero} a Carlos`);
 if (process.env["DEPURAR"]) console.log(log.slice(marca).join("\n"));
 afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Ana") && l.includes("que tenía asignado fue reasignado")), "al reasignar se avisa al vendedor anterior");
 
+// --- Catálogo de equipos
+tablas["equipos_catalogo"] = [
+  { id: "e1", clave: "AFPAM C-600", nombre: "Motor para portón corredizo hasta 600 kg", categoria: "Motor de cremallera", descripcion: "Instalación incluida.", fotos: [{ url: "https://x/c600a.jpg" }, { url: "https://x/c600b.jpg" }], notas_internas: "Marca X modelo Y", activo: true, orden: 1, usos: 0 },
+  { id: "e2", clave: "AFPAM P-300", nombre: "Pistones para portón abatible", categoria: "Pistones", descripcion: null, fotos: [{ url: "https://x/p300.jpg" }], notas_internas: "Marca Z", activo: true, orden: 2, usos: 0 },
+];
+marca = log.length;
+await vendedor("v2", "COMANDOS");
+afirmar(log.slice(marca).some((l) => l.includes("Catálogo de equipos")), "el menú trae Catálogo de equipos");
+marca = log.length;
+await vendedor("v2", "Catálogo de equipos", "cmd:catalogo");
+afirmar(log.slice(marca).some((l) => l.includes("Motor de cremallera") && l.includes("Pistones")), "el catálogo muestra las categorías");
+marca = log.length;
+await vendedor("v2", "Motor de cremallera", "cat:2");
+afirmar(log.slice(marca).some((l) => l.includes("AFPAM C-600")), "la categoría lista sus equipos por clave");
+marca = log.length;
+await vendedor("v2", "AFPAM C-600", "eq:e1");
+const fotosEq = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana"));
+afirmar(fotosEq.filter((l) => l.includes("[Imagen]")).length === 2 && fotosEq[0]!.includes("AFPAM C-600") && fotosEq[0]!.includes("600 kg"), "se mandan las fotos con pie de foto");
+afirmar(!fotosEq.some((l) => l.includes("Marca X")), "las notas internas nunca se envían");
+afirmar(tablas["equipos_catalogo"]![0]!.usos === 1, "se cuenta el uso del equipo");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

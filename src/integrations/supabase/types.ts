@@ -397,6 +397,51 @@ export type Database = {
         }
         Relationships: []
       }
+      equipos_catalogo: {
+        Row: {
+          activo: boolean
+          categoria: string
+          clave: string
+          creado_en: string
+          descripcion: string | null
+          fotos: Json
+          id: string
+          nombre: string
+          notas_internas: string | null
+          orden: number
+          ultimo_uso: string | null
+          usos: number
+        }
+        Insert: {
+          activo?: boolean
+          categoria?: string
+          clave: string
+          creado_en?: string
+          descripcion?: string | null
+          fotos?: Json
+          id?: string
+          nombre: string
+          notas_internas?: string | null
+          orden?: number
+          ultimo_uso?: string | null
+          usos?: number
+        }
+        Update: {
+          activo?: boolean
+          categoria?: string
+          clave?: string
+          creado_en?: string
+          descripcion?: string | null
+          fotos?: Json
+          id?: string
+          nombre?: string
+          notas_internas?: string | null
+          orden?: number
+          ultimo_uso?: string | null
+          usos?: number
+        }
+        Relationships: []
+      }
       estado_conversacion: {
         Row: {
           contacto_id: string
