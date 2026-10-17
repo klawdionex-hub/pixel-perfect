@@ -666,7 +666,8 @@ export async function procesarMensajeVendedor(
   const texto = (entrada.texto ?? "").trim();
   if (/^ver la lista$/i.test(texto)) return enviarSinAsignar(db, canal, v);
 
-  if (/^#?\s*(comandos?|men[uú]|ayuda|opciones)$/i.test(texto)) return enviarMenu(db, canal, v);
+  // Solo la palabra COMANDOS abre el menú.
+  if (/^#?\s*comandos?[.!]?$/i.test(texto)) return enviarMenu(db, canal, v);
 
   // Orden del administrador: "asigna el último prospecto a Luis", "asigna 0025 a 5512345678".
   const orden = ORDEN_ASIGNAR.exec(texto);
@@ -718,10 +719,13 @@ export async function procesarMensajeVendedor(
   }
 
   // Si el vendedor tiene respuestas automáticas (WhatsApp Business), su respuesta llegaría aquí y el bot
-  // contestaría otra vez: la lista solo se envía una vez cada 10 minutos para no armar un ciclo.
+  // contestaría otra vez: el recordatorio solo se envía una vez cada 10 minutos para no armar un ciclo.
   if (horasDesde(estado.ultima_ayuda, ahora) < 1 / 6) return;
   await guardarEstadoVendedor(db, v, { ...estado, ultima_ayuda: ahora.toISOString() });
-  return enviarMenu(db, canal, v);
+  return responder(canal, v, {
+    tipo: "texto",
+    texto: `Buen día, ${v.nombre}. Este número es el asistente de AFPAM Texcoco. Para ver lo que puede pedirme, escriba *comandos*.`,
+  });
 }
 
 // ---------------------------------------------------------------- menú de comandos del vendedor

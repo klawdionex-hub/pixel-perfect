@@ -145,7 +145,7 @@ function Pagina() {
     <div>
       <EncabezadoPagina
         titulo="Comandos"
-        descripcion='Lo que ve un vendedor cuando le escribe al bot. Cualquier mensaje, o la palabra "comandos", abre este menú.'
+        descripcion='Lo que ve un vendedor cuando le escribe "comandos" al bot.'
       />
       <div className="grid gap-8 p-8 xl:grid-cols-[1fr_380px]">
         <div className="space-y-6">

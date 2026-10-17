@@ -229,7 +229,7 @@ await vendedor("v2", "comandos");
 const menuAna = log.slice(marca).find((l) => l.startsWith("VENDEDOR Ana")) ?? "";
 afirmar(menuAna.includes("Ver mis prospectos") && menuAna.includes("Ventas y comisión") && menuAna.includes("Garantía") && !menuAna.includes("Cuenta bancaria"), "COMANDOS abre el menú (sin material solo de administrador)");
 marca = log.length;
-await vendedor("v1", "menu");
+await vendedor("v1", "COMANDOS");
 afirmar(log.slice(marca).some((l) => l.includes("Cuenta bancaria")), "el administrador ve también el material solo para administradores");
 marca = log.length;
 await vendedor("v2", "Trabajos", "mat:m2");
@@ -264,7 +264,7 @@ afirmar(ventasAna.includes("Ventas cerradas: 1") && ventasAna.includes("$8,000")
 reloj.ahora = new Date(reloj.ahora.getTime() + 11 * 60000);
 marca = log.length;
 await vendedor("v2", "buenas tardes");
-afirmar(log.slice(marca).some((l) => l.includes("¿qué desea hacer?")), "cualquier mensaje del vendedor abre el menú");
+afirmar(log.slice(marca).some((l) => l.includes("escriba *comandos*")) && !log.slice(marca).some((l) => l.includes("¿qué desea hacer?")), "otro mensaje solo recuerda escribir comandos");
 
 // Reasignar avisa al vendedor anterior
 const otraSuya = tablas["solicitudes"]!.find((x) => !x.vendedor_id && x.etapa === 1)!;
