@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { claves, traerArchivos, traerMensajes, traerServicios, traerSolicitud, traerUsuarios, type Solicitud } from "@/lib/datos";
 import { ETAPAS, ETIQUETAS_DATOS, enlaceWhatsApp, fechaHora, haceTiempo, moneda, telefonoBonito } from "@/lib/afpam";
+import { TextoWhatsApp } from "@/components/TextoWhatsApp";
 import { cabeza } from "@/lib/cabeza";
 import { cn } from "@/lib/utils";
 
@@ -276,7 +277,7 @@ function PaginaSolicitud() {
                               Ver archivo
                             </a>
                           ) : null}
-                          <p className="whitespace-pre-wrap">{m.contenido ?? `[${m.tipo}]`}</p>
+                          <p className="whitespace-pre-wrap"><TextoWhatsApp texto={m.contenido ?? `[${m.tipo}]`} /></p>
                           <div className="mt-1 text-right text-[10px] text-[#667781]">
                             {saliente ? (m.autor === "bot" ? "Bot · " : `${m.autor} · `) : ""}
                             {fechaHora(m.creado_en)}

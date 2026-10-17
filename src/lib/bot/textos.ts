@@ -34,7 +34,16 @@ export type ClaveTexto =
   | "recordatorio_2"
   | "respuesta_vendedor";
 
-type DefTexto = { etiqueta: string; porDefecto: string; columna?: string; legado?: string };
+/**
+ * legado: texto de ejemplo de la primera versión. anteriores: versiones por defecto ya reemplazadas.
+ * Si lo guardado es igual a cualquiera de ellos, se usa el texto por defecto actual.
+ */
+type DefTexto = { etiqueta: string; porDefecto: string; columna?: string; legado?: string; anteriores?: string[] };
+
+/** Valor guardado que el usuario sí personalizó (no vacío ni igual a una versión anterior por defecto). */
+function personalizado(def: DefTexto, v: unknown): v is string {
+  return typeof v === "string" && !!v.trim() && v !== def.legado && !(def.anteriores ?? []).includes(v);
+}
 
 export const TEXTOS: Record<ClaveTexto, DefTexto> = {
   saludo: {
@@ -42,7 +51,10 @@ export const TEXTOS: Record<ClaveTexto, DefTexto> = {
     columna: "texto_saludo",
     legado: "Buen día. Le atiende AFPAM Texcoco, Puertas Automáticas. ¿En qué servicio está interesado?",
     porDefecto:
+      "Buen día, gracias por comunicarse con AFPAM Texcoco. Somos especialistas en instalación, reparación y mantenimiento de portones automáticos y cortinas eléctricas.\n\nLe atiende el asistente virtual. Le haré algunas preguntas breves para que uno de nuestros asesores le atienda con toda su información.\n\n¿Podría indicarme su *nombre*, por favor?",
+    anteriores: [
       "Buen día, gracias por comunicarse con AFPAM Texcoco. Somos especialistas en instalación, reparación y mantenimiento de portones automáticos y cortinas eléctricas.\n\nLe atiende el asistente virtual. Le haré algunas preguntas breves para que uno de nuestros asesores le atienda con toda su información.\n\n¿Podría indicarme su nombre, por favor?",
+    ],
   },
   menu: {
     etiqueta: "Menú principal",
@@ -57,7 +69,11 @@ export const TEXTOS: Record<ClaveTexto, DefTexto> = {
   intro_encuesta: {
     etiqueta: "Aviso antes de empezar las preguntas ({servicio}, {total} = número de preguntas)",
     porDefecto:
+      "Para preparar su cotización de {servicio} le haré {total} preguntas breves; le tomará alrededor de un minuto.\n\n*Le pedimos contestarlas todas*: con esa información su asesor podrá atenderle más rápido y darle un precio más preciso, sin tener que volver a preguntarle.",
+    anteriores: [
+      "Para preparar su cotización de {servicio} le haré {total} preguntas breves; le tomará uno o dos minutos.\n\nLe pedimos contestarlas todas: con esa información su asesor podrá atenderle más rápido y darle un precio más preciso, sin tener que volver a preguntarle.",
       "Para preparar su cotización de {servicio} le haré {total} preguntas breves; le tomará alrededor de un minuto.\n\nLe pedimos contestarlas todas: con esa información su asesor podrá atenderle más rápido y darle un precio más preciso, sin tener que volver a preguntarle.",
+    ],
   },
   pregunta_zona: {
     etiqueta: "Pregunta de zona",
@@ -207,13 +223,8 @@ export function texto(
 ): string {
   const def = TEXTOS[clave];
   let valor: string | undefined;
-  if (def.columna) {
-    const v = config[def.columna];
-    if (typeof v === "string" && v.trim() && v !== def.legado) valor = v;
-  } else {
-    const v = config.textos_extra?.[clave];
-    if (typeof v === "string" && v.trim()) valor = v;
-  }
+  const v = def.columna ? config[def.columna] : config.textos_extra?.[clave];
+  if (personalizado(def, v)) valor = v;
   let t = valor ?? def.porDefecto;
   for (const [k, v] of Object.entries(variables)) {
     t = t.split(`{${k}}`).join(v == null ? "" : String(v));
@@ -227,8 +238,7 @@ export function texto(
 export function valorEditable(config: ConfigBot, clave: ClaveTexto): string {
   const def = TEXTOS[clave];
   const v = def.columna ? config[def.columna] : config.textos_extra?.[clave];
-  if (typeof v === "string" && v.trim() && v !== def.legado) return v;
-  return def.porDefecto;
+  return personalizado(def, v) ? v : def.porDefecto;
 }
 
 /** Hora local de Ciudad de México (0 a 23). */

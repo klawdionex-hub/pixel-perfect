@@ -86,7 +86,7 @@ const J = "+525599999999";
 let marca = log.length;
 await cliente(J, "Buenas tardes");
 const b = log.slice(marca + 1);
-afirmar(b[0]?.startsWith("BOT> [Imagen]") && b[1]?.startsWith("BOT> [Ubicación]") && b[2]?.includes("¿Podría indicarme su nombre"), `bienvenida: foto, ubicación y saludo (${b.length} mensajes)`);
+afirmar(b[0]?.startsWith("BOT> [Imagen]") && b[1]?.startsWith("BOT> [Ubicación]") && b[2]?.includes("¿Podría indicarme su *nombre*"), `bienvenida: foto, ubicación y saludo (${b.length} mensajes)`);
 marca = log.length;
 await cliente(J, "Mario");
 afirmar(!log.slice(marca).some((l) => l.includes("[Imagen]")), "la foto solo se manda al saludar");

@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { pasarContactoAVendedores } from "@/lib/bot.functions";
 import { claves, traerContactos, traerSolicitudes, type Contacto, type Solicitud } from "@/lib/datos";
 import { enlaceWhatsApp, fechaHora, haceTiempo, telefonoBonito } from "@/lib/afpam";
+import { TextoWhatsApp } from "@/components/TextoWhatsApp";
 import { cabeza } from "@/lib/cabeza";
 import { NOMBRE_PASO } from "@/lib/bot/pasos";
 import { cn } from "@/lib/utils";
@@ -359,7 +360,7 @@ function Detalle({
                       Ver archivo ({m.tipo})
                     </a>
                   ) : null}
-                  {m.contenido ? <p className="whitespace-pre-wrap text-[#111b21]">{m.contenido}</p> : null}
+                  {m.contenido ? <p className="whitespace-pre-wrap text-[#111b21]"><TextoWhatsApp texto={m.contenido} /></p> : null}
                   <p className="text-right text-[10px] text-[#667781]">{fechaHora(m.creado_en)}</p>
                 </div>
               </div>

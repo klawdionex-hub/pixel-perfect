@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { claves, traerConfiguracion, traerServicios, type Servicio } from "@/lib/datos";
+import { TextoWhatsApp } from "@/components/TextoWhatsApp";
 import { cabeza } from "@/lib/cabeza";
 import { TEXTOS, valorEditable, type ClaveTexto, type ConfigBot } from "@/lib/bot/textos";
 import { normalizarOpciones, textoDeSalida } from "@/lib/bot/salida";
@@ -912,7 +913,7 @@ function ProbarBot() {
                 {b.de === "vendedor" ? (
                   <p className="mb-1 text-xs font-semibold text-petroleo">Aviso por WhatsApp a {b.nombre}</p>
                 ) : null}
-                <p className="whitespace-pre-wrap">{b.texto}</p>
+                <p className="whitespace-pre-wrap"><TextoWhatsApp texto={b.texto} /></p>
                 {b.opciones ? (
                   <div className="mt-2 flex flex-col gap-1">
                     {b.opciones.map((o) => (
