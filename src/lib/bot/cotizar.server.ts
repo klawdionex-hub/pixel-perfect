@@ -7,7 +7,7 @@ import { costoDe, empresaDe, leerPrecio, pesos, totalDe, type Iva, type Partida 
 import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria } from "./equipos";
 import type { Canal } from "./motor.server";
-import type { Opcion } from "./salida";
+import { normalizarTelefono, type Opcion } from "./salida";
 import { folio, otraAccion, responder, type Vendedor } from "./vendedores.server";
 
 type DB = SupabaseClient<Database>;
@@ -17,10 +17,17 @@ type Pendiente = { equipo_id?: string | null; concepto: string; costo?: number |
 
 /** Borrador guardado en usuarios_perfil.estado_bot.cot mientras el vendedor contesta. */
 export type BorradorCot = {
-  paso: "cliente" | "nombre" | "telefono" | "concepto" | "precio" | "menu";
+  paso: "cliente" | "buscar" | "nombre" | "telefono" | "municipio" | "concepto" | "precio" | "menu";
   desde: string;
   solicitud_id?: string | null;
-  cliente: { nombre: string; telefono?: string | null; proyecto?: string | null };
+  /** Contacto del programa (prospecto o cliente existente); null si es un cliente nuevo. */
+  contacto_id?: string | null;
+  /** "nuevo": captura completa; "corregir": corrige los datos de un contacto existente. */
+  captura?: "nuevo" | "corregir" | null;
+  /** Servicio del prospecto que se creará si el cliente no tiene uno abierto. */
+  servicio?: number | null;
+  necesitaServicio?: boolean;
+  cliente: { nombre: string; telefono?: string | null; municipio?: string | null; proyecto?: string | null };
   partidas: Partida[];
   principal_id?: string | null;
   pendiente?: Pendiente | null;
@@ -59,6 +66,18 @@ const resumenCorto = (b: BorradorCot) =>
 export async function iniciarCotizacion(db: DB, canal: Canal, v: Vendedor, ahora: Date) {
   const b: BorradorCot = { paso: "cliente", desde: ahora.toISOString(), cliente: { nombre: "" }, partidas: [] };
   await guardar(db, v, b);
+  return responder(canal, v, {
+    tipo: "botones",
+    texto: '*Nueva cotización.* ¿Para quién es?\n\nPuede escribir "cancelar" en cualquier momento.',
+    opciones: [
+      { id: "cot:mis", titulo: "Mis prospectos" },
+      { id: "cot:existente", titulo: "Cliente existente" },
+      { id: "cot:nuevo", titulo: "Cliente nuevo" },
+    ],
+  });
+}
+
+async function listarMisProspectos(db: DB, canal: Canal, v: Vendedor) {
   const { data } = await db
     .from("solicitudes")
     .select("id, codigo, creada_en, contactos(nombre, municipio)")
@@ -66,17 +85,157 @@ export async function iniciarCotizacion(db: DB, canal: Canal, v: Vendedor, ahora
     .in("etapa", [1, 2, 3])
     .order("creada_en", { ascending: false })
     .limit(9);
-  const opciones: Opcion[] = (data ?? []).map((s) => {
-    const c = s.contactos as { nombre: string | null; municipio: string | null } | null;
-    return { id: `cot:sol:${s.id}`, titulo: folio(s), descripcion: `${c?.nombre ?? "Sin nombre"} · ${c?.municipio ?? ""}`.trim() };
-  });
-  opciones.push({ id: "cot:nuevo", titulo: "Cliente nuevo", descripcion: "Que no está en mis prospectos" });
+  if (!data?.length) {
+    return responder(canal, v, {
+      tipo: "botones",
+      texto: "No tiene prospectos abiertos. Puede cotizar a un cliente existente o a uno nuevo.",
+      opciones: [
+        { id: "cot:existente", titulo: "Cliente existente" },
+        { id: "cot:nuevo", titulo: "Cliente nuevo" },
+      ],
+    });
+  }
   return responder(canal, v, {
     tipo: "lista",
-    texto: '*Nueva cotización.* ¿Para qué cliente es?\n\nPuede escribir "cancelar" en cualquier momento.',
-    boton: "Elegir cliente",
-    opciones,
+    texto: "Elija el prospecto.",
+    boton: "Ver prospectos",
+    opciones: data.map((s): Opcion => {
+      const c = s.contactos as { nombre: string | null; municipio: string | null } | null;
+      return { id: `cot:sol:${s.id}`, titulo: folio(s), descripcion: `${c?.nombre ?? "Sin nombre"} · ${c?.municipio ?? ""}`.trim() };
+    }),
   });
+}
+
+const sinAcentos = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+/** Busca en todos los contactos por nombre o por los últimos dígitos del teléfono. */
+async function buscarClientes(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, consulta: string) {
+  const { data } = await db.from("contactos").select("id, nombre, telefono, municipio, es_cliente, es_ejemplo, primer_contacto");
+  const digitos = consulta.replace(/\D/g, "");
+  const q = sinAcentos(consulta);
+  const encontrados = (data ?? [])
+    .filter((c) => !c.es_ejemplo && !c.telefono.startsWith("sim-"))
+    .filter((c) => (digitos.length >= 4 ? c.telefono.replace(/\D/g, "").endsWith(digitos) : q.length >= 2 && sinAcentos(c.nombre ?? "").includes(q)))
+    .slice(0, 9);
+  if (!encontrados.length) {
+    b.paso = "buscar";
+    await guardar(db, v, b);
+    return responder(canal, v, {
+      tipo: "botones",
+      texto: `No encontré clientes con "${consulta}". Escriba otro nombre o los últimos 4 dígitos del teléfono, o regístrelo como cliente nuevo.`,
+      opciones: [{ id: "cot:nuevo", titulo: "Cliente nuevo" }],
+    });
+  }
+  const fecha = (iso: string) => new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "America/Mexico_City" }).format(new Date(iso));
+  return responder(canal, v, {
+    tipo: "lista",
+    texto: "Elija al cliente.",
+    boton: "Ver clientes",
+    opciones: [
+      ...encontrados.map((c): Opcion => ({
+        id: `cot:con:${c.id}`,
+        titulo: (c.nombre ?? "Sin nombre").slice(0, 24),
+        descripcion: [c.municipio, `…${c.telefono.replace(/\D/g, "").slice(-4)}`, c.es_cliente ? `cliente desde ${fecha(c.primer_contacto)}` : null].filter(Boolean).join(" · "),
+      })),
+      { id: "cot:existente", titulo: "Buscar otra vez" },
+    ],
+  });
+}
+
+/** Nombres que la gente escribe para no darlo: "no", "x", "no quiero", una letra, solo números… */
+function nombreSospechoso(n: string | null | undefined) {
+  const t = sinAcentos(n ?? "");
+  if (t.length < 3 || /^\d+$/.test(t) || /^(.)\1*$/.test(t)) return true;
+  return /^(no|na|n\/a|ninguno|nadie|anonimo|cliente|sin nombre|no quiero|no gracias|prefiero no|no doy|xxx?)\b/.test(t) || /no (quiero|doy|deseo)/.test(t);
+}
+
+/** Muestra los datos del cliente y pregunta si continuar o corregirlos. */
+async function confirmarDatos(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
+  b.paso = "menu";
+  await guardar(db, v, b);
+  const aviso = nombreSospechoso(b.cliente.nombre)
+    ? `\n\nEl nombre registrado parece no ser válido ("${b.cliente.nombre || "sin nombre"}"). Le recomiendo corregirlo antes de cotizar.`
+    : "";
+  return responder(canal, v, {
+    tipo: "botones",
+    texto: `*Datos del cliente*\nNombre: ${b.cliente.nombre || "—"}\nTeléfono: ${b.cliente.telefono ?? "—"}\nMunicipio: ${b.cliente.municipio ?? "—"}${aviso}`,
+    opciones: [
+      { id: "cot:ok", titulo: "Continuar" },
+      { id: "cot:datos", titulo: "Corregir datos" },
+    ],
+  });
+}
+
+async function nombreDeServicio(db: DB, codigo: number | null | undefined) {
+  if (codigo == null) return null;
+  const { data } = await db.from("servicios").select("nombre").eq("codigo", codigo).maybeSingle();
+  return data?.nombre ?? null;
+}
+
+/** Después de los datos: el servicio (si hay que crear el prospecto) y luego los equipos. */
+async function continuar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
+  if (b.necesitaServicio && b.servicio == null) {
+    b.paso = "menu";
+    await guardar(db, v, b);
+    const { data } = await db.from("servicios").select("codigo, nombre, activo").eq("activo", true).order("codigo");
+    return responder(canal, v, {
+      tipo: "lista",
+      texto: "¿Qué servicio va a cotizar? Con esto se registra el prospecto a su nombre.",
+      boton: "Ver servicios",
+      opciones: (data ?? []).slice(0, 10).map((x): Opcion => ({ id: `cot:srv:${x.codigo}`, titulo: x.nombre.slice(0, 24), ...(x.nombre.length > 24 ? { descripcion: x.nombre } : {}) })),
+    });
+  }
+  b.cliente.proyecto = [await nombreDeServicio(db, b.servicio), b.cliente.municipio].filter(Boolean).join(" – ") || null;
+  return preguntarEquipo(db, canal, v, b);
+}
+
+/** Pide el teléfono (o lo ofrece conservar) durante la captura. */
+async function pedirTelefono(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
+  if (b.captura === "corregir" && b.cliente.telefono) {
+    b.paso = "menu";
+    await guardar(db, v, b);
+    return responder(canal, v, {
+      tipo: "botones",
+      texto: `Teléfono: ${b.cliente.telefono}`,
+      opciones: [
+        { id: "cot:tel:mismo", titulo: "Usar el mismo" },
+        { id: "cot:tel:cambiar", titulo: "Cambiar" },
+      ],
+    });
+  }
+  b.paso = "telefono";
+  await guardar(db, v, b);
+  return responder(canal, v, { tipo: "texto", texto: 'Escriba el teléfono del cliente a 10 dígitos, o "omitir".' });
+}
+
+async function pedirMunicipio(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
+  if (b.captura === "corregir" && b.cliente.municipio) {
+    b.paso = "menu";
+    await guardar(db, v, b);
+    return responder(canal, v, {
+      tipo: "botones",
+      texto: `Municipio: ${b.cliente.municipio}`,
+      opciones: [
+        { id: "cot:mun:mismo", titulo: "Usar el mismo" },
+        { id: "cot:mun:cambiar", titulo: "Cambiar" },
+      ],
+    });
+  }
+  b.paso = "municipio";
+  await guardar(db, v, b);
+  return responder(canal, v, { tipo: "texto", texto: 'Escriba el municipio o la colonia, o "omitir".' });
+}
+
+/** Termina la captura: guarda nombre y municipio corregidos en el contacto y sigue. */
+async function terminarCaptura(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
+  if (b.contacto_id) {
+    await db
+      .from("contactos")
+      .update({ nombre: b.cliente.nombre, ...(b.cliente.municipio ? { municipio: b.cliente.municipio } : {}) })
+      .eq("id", b.contacto_id);
+  }
+  b.captura = null;
+  return continuar(db, canal, v, b);
 }
 
 async function preguntarEquipo(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
@@ -164,6 +323,45 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
   const total = totalDe(b.partidas);
   const costo = costoDe(b.partidas);
 
+  // Cliente nuevo o existente sin prospecto abierto: se registra un prospecto a nombre del vendedor.
+  let aviso = "";
+  if (!b.solicitud_id && b.servicio != null) {
+    let contactoId = b.contacto_id ?? null;
+    if (!contactoId && b.cliente.telefono) {
+      const { data: existe } = await db.from("contactos").select("id").eq("telefono", b.cliente.telefono).maybeSingle();
+      contactoId = existe?.id ?? null;
+      if (!contactoId) {
+        const { data: nuevo } = await db
+          .from("contactos")
+          .insert({ telefono: b.cliente.telefono, nombre: b.cliente.nombre, municipio: b.cliente.municipio ?? null, origen: "cotización" })
+          .select("id")
+          .single();
+        contactoId = nuevo?.id ?? null;
+      }
+    }
+    if (contactoId) {
+      const { data: sol } = await db
+        .from("solicitudes")
+        .insert({
+          contacto_id: contactoId,
+          servicio_codigo: b.servicio,
+          etapa: 2,
+          completa: true,
+          vendedor_id: v.id,
+          tomada_en: ahora.toISOString(),
+          datos: { origen: `Cotización de ${v.nombre}` } as unknown as Json,
+        })
+        .select("id, codigo")
+        .single();
+      if (sol) {
+        b.solicitud_id = sol.id;
+        aviso = `\nSe registró el prospecto *${sol.codigo}* a su nombre.`;
+      }
+    } else {
+      aviso = "\nComo no hay teléfono, la cotización no quedó ligada a un prospecto.";
+    }
+  }
+
   const { data: cot, error } = await db
     .from("cotizaciones")
     .insert({
@@ -220,7 +418,7 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
   await responder(canal, v, { tipo: "documento", url, nombre: `${nombreArchivo}.pdf` });
   await responder(canal, v, {
     tipo: "texto",
-    texto: `Listo: cotización *${cot.folio}* por *${pesos(total)}*${conMarca ? " (con marca y modelo)" : ""}.\n\nRevísela antes de reenviarla al cliente. Si necesita cambios, escriba *comandos* y haga una nueva.`,
+    texto: `Listo: cotización *${cot.folio}* por *${pesos(total)}*${conMarca ? " (con marca y modelo)" : ""}.${aviso}\n\nRevísela antes de reenviarla al cliente. Si necesita cambios, escriba *comandos* y haga una nueva.`,
   });
   // Ganancia: con los conceptos que tienen costo en el catálogo; los demás se mencionan aparte.
   const conCosto = b.partidas.filter((p) => p.costo != null);
@@ -279,16 +477,34 @@ export async function atenderCotizacion(
   // Respuestas escritas
   if (!id.startsWith("cot:")) {
     if (!texto || id) return false;
+    if (b.paso === "buscar") {
+      await buscarClientes(db, canal, v, b, texto.slice(0, 60));
+      return true;
+    }
     if (b.paso === "nombre") {
-      b.cliente.nombre = texto.slice(0, 80);
-      b.paso = "telefono";
-      await guardar(db, v, b);
-      await responder(canal, v, { tipo: "texto", texto: 'Escriba el teléfono del cliente, o "omitir".' });
+      if (nombreSospechoso(texto)) {
+        await responder(canal, v, { tipo: "texto", texto: "Escriba el nombre completo del cliente, por ejemplo *Juan Pérez*." });
+        return true;
+      }
+      b.cliente.nombre = texto.slice(0, 80).toLowerCase().replace(/(^|\s)\p{L}/gu, (m) => m.toUpperCase());
+      await pedirTelefono(db, canal, v, b);
       return true;
     }
     if (b.paso === "telefono") {
-      if (!/^omitir$/i.test(texto)) b.cliente.telefono = texto.slice(0, 30);
-      await preguntarEquipo(db, canal, v, b);
+      if (!/^omitir$/i.test(texto)) {
+        const d = texto.replace(/\D/g, "");
+        if (d.length < 10) {
+          await responder(canal, v, { tipo: "texto", texto: 'El teléfono debe tener 10 dígitos, por ejemplo *5512345678*. O escriba "omitir".' });
+          return true;
+        }
+        b.cliente.telefono = normalizarTelefono(d);
+      }
+      await pedirMunicipio(db, canal, v, b);
+      return true;
+    }
+    if (b.paso === "municipio") {
+      if (!/^omitir$/i.test(texto)) b.cliente.municipio = texto.slice(0, 120);
+      await terminarCaptura(db, canal, v, b);
       return true;
     }
     if (b.paso === "concepto") {
@@ -309,24 +525,97 @@ export async function atenderCotizacion(
   }
 
   const [, accion, a] = id.split(":");
+  if (accion === "mis") {
+    await listarMisProspectos(db, canal, v);
+    return true;
+  }
+  if (accion === "existente") {
+    b.paso = "buscar";
+    await guardar(db, v, b);
+    await responder(canal, v, { tipo: "texto", texto: "Escriba el nombre o los últimos 4 dígitos del teléfono del cliente." });
+    return true;
+  }
   if (accion === "sol" && a) {
-    const { data: s } = await db.from("solicitudes").select("id, servicio_codigo, datos, contactos(nombre, telefono, municipio)").eq("id", a).maybeSingle();
+    const { data: s } = await db.from("solicitudes").select("id, servicio_codigo, contacto_id, contactos(nombre, telefono, municipio)").eq("id", a).maybeSingle();
     const c = s?.contactos as { nombre: string | null; telefono: string; municipio: string | null } | null;
-    const { data: srv } = await db.from("servicios").select("nombre").eq("codigo", s?.servicio_codigo ?? -1).maybeSingle();
     b.solicitud_id = a;
+    b.contacto_id = s?.contacto_id ?? null;
+    b.servicio = s?.servicio_codigo ?? null;
+    b.necesitaServicio = false;
     b.cliente = {
-      nombre: c?.nombre ?? "Cliente",
+      nombre: c?.nombre ?? "",
       telefono: c?.telefono && !c.telefono.startsWith("sim-") ? c.telefono : null,
-      proyecto: [srv?.nombre, c?.municipio].filter(Boolean).join(" – ") || null,
+      municipio: c?.municipio ?? null,
     };
-    await preguntarEquipo(db, canal, v, b);
+    await confirmarDatos(db, canal, v, b);
+    return true;
+  }
+  if (accion === "con" && a) {
+    const { data: c } = await db.from("contactos").select("id, nombre, telefono, municipio").eq("id", a).maybeSingle();
+    if (!c) {
+      await responder(canal, v, { tipo: "texto", texto: "No encontré a ese cliente." });
+      return true;
+    }
+    // Si tiene un prospecto abierto con este vendedor, la cotización se liga a ese; si no, se crea uno nuevo.
+    const { data: abierta } = await db
+      .from("solicitudes")
+      .select("id, servicio_codigo")
+      .eq("contacto_id", c.id)
+      .eq("vendedor_id", v.id)
+      .in("etapa", [1, 2, 3])
+      .order("creada_en", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    b.contacto_id = c.id;
+    b.solicitud_id = abierta?.id ?? null;
+    b.servicio = abierta?.servicio_codigo ?? null;
+    b.necesitaServicio = !abierta;
+    b.cliente = { nombre: c.nombre ?? "", telefono: c.telefono.startsWith("sim-") ? null : c.telefono, municipio: c.municipio };
+    await confirmarDatos(db, canal, v, b);
     return true;
   }
   if (accion === "nuevo") {
-    b.paso = "nombre";
     b.solicitud_id = null;
+    b.contacto_id = null;
+    b.servicio = null;
+    b.necesitaServicio = true;
+    b.captura = "nuevo";
+    b.cliente = { nombre: "" };
+    b.paso = "nombre";
     await guardar(db, v, b);
-    await responder(canal, v, { tipo: "texto", texto: "Escriba el nombre del cliente." });
+    await responder(canal, v, { tipo: "texto", texto: "Escriba el nombre completo del cliente." });
+    return true;
+  }
+  if (accion === "ok") {
+    await continuar(db, canal, v, b);
+    return true;
+  }
+  if (accion === "datos") {
+    b.captura = "corregir";
+    b.paso = "nombre";
+    await guardar(db, v, b);
+    await responder(canal, v, { tipo: "texto", texto: "Escriba el nombre completo del cliente." });
+    return true;
+  }
+  if (accion === "tel") {
+    if (a === "cambiar") {
+      b.paso = "telefono";
+      await guardar(db, v, b);
+      await responder(canal, v, { tipo: "texto", texto: "Escriba el teléfono del cliente a 10 dígitos." });
+    } else await pedirMunicipio(db, canal, v, b);
+    return true;
+  }
+  if (accion === "mun") {
+    if (a === "cambiar") {
+      b.paso = "municipio";
+      await guardar(db, v, b);
+      await responder(canal, v, { tipo: "texto", texto: "Escriba el municipio o la colonia." });
+    } else await terminarCaptura(db, canal, v, b);
+    return true;
+  }
+  if (accion === "srv" && a) {
+    b.servicio = Number(a);
+    await continuar(db, canal, v, b);
     return true;
   }
   if (accion === "cats") {
