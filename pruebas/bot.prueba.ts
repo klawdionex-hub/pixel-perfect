@@ -350,7 +350,34 @@ afirmar(suyaCot.etapa === 2, "el prospecto pasa a Cotizado");
 afirmar(!(tablas["usuarios_perfil"]!.find((u) => u.id === "v2")!.estado_bot as { cot?: unknown }).cot, "el borrador se borra al terminar");
 await vendedor("v2", "Hacer cotización", "cmd:cotizar");
 await vendedor("v2", "cancelar");
-afirmar(log.at(-1)!.includes("Cotización cancelada"), "cancelar una cotización");
+afirmar(log.slice(-2)[0]!.includes("Cotización cancelada") && log.at(-1)!.includes("¿Desea hacer alguna otra acción?"), "cancelar una cotización y ofrecer el menú");
+
+// --- Otra acción, Ver mis prospectos sin resultados y "No le interesó"
+const tres = tablas["solicitudes"]!.filter((x) => !x.vendedor_id && x.etapa === 1).slice(0, 3);
+for (const x of tres) x.vendedor_id = "v2";
+const [pA, pB, pC] = tres;
+marca = log.length;
+await vendedor("v2", `${pA!.numero} cotizado`);
+afirmar(log.at(-1)!.includes("¿Desea hacer alguna otra acción?") && log.at(-1)!.includes("Ver mis prospectos"), "después de registrar un resultado se ofrece el menú");
+marca = log.length;
+await vendedor("v2", "Ver mis prospectos", "cmd:mis");
+const listaMis = log.slice(marca).join(" ");
+afirmar(!listaMis.includes(pA!.codigo) && listaMis.includes(pB!.codigo), "Ver mis prospectos ya no muestra los que tienen resultado");
+marca = log.length;
+await vendedor("v2", "Registrar resultado", "cmd:resultado");
+afirmar(log.slice(marca).join(" ").includes(pA!.codigo), "Registrar resultado sigue mostrando los cotizados");
+await vendedor("v2", pB!.codigo, `seg:${pB!.id}`);
+afirmar(log.at(-1)!.includes("No le interesó"), "el resultado No le interesó aparece en la lista");
+marca = log.length;
+await vendedor("v2", "No le interesó", `res:n:${pB!.id}`);
+const contactoB = tablas["contactos"]!.find((c) => c.id === pB!.contacto_id)!;
+afirmar(pB!.etapa === 0 && contactoB.nivel_interes === "no le interesó", "No le interesó cierra el prospecto y marca el contacto");
+afirmar(log.slice(marca).some((l) => l.includes("quedó guardado en Contactos")), "avisa que el número quedó guardado");
+await vendedor("v2", `${pC!.numero} no le interesó`);
+afirmar(pC!.etapa === 0 && tablas["contactos"]!.find((c) => c.id === pC!.contacto_id)!.nivel_interes === "no le interesó", "comando escrito 0045 no le interesó");
+marca = log.length;
+await vendedor("v2", "Ventas y comisión", "cmd:ventas");
+afirmar(log.at(-1)!.includes("¿Desea hacer alguna otra acción?"), "ventas termina con el menú");
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

@@ -48,7 +48,10 @@ type EstadoConversacion = {
   en_manos_de_vendedor: boolean;
   ultima_actividad: string;
 };
-type Filtro = "todos" | "sin_terminar" | "con_prospecto" | "clientes";
+type Filtro = "todos" | "sin_terminar" | "con_prospecto" | "clientes" | "no_interesa";
+
+/** Lo registra el vendedor con el resultado "No le interesó". */
+const noLeInteresa = (c: Contacto) => c.nivel_interes === "no le interesó";
 
 const pasoLegible = (e: EstadoConversacion | undefined) => PASOS[e?.paso_actual ?? ""] ?? e?.paso_actual ?? "";
 
@@ -85,12 +88,14 @@ function PaginaContactos() {
     sin_terminar: todos.filter(sinTerminar).length,
     con_prospecto: todos.filter((c) => porContacto.get(c.id)?.length).length,
     clientes: todos.filter((c) => c.es_cliente).length,
+    no_interesa: todos.filter(noLeInteresa).length,
   };
 
   const lista = todos.filter((c) => {
     if (filtro === "sin_terminar" && !sinTerminar(c)) return false;
     if (filtro === "con_prospecto" && !porContacto.get(c.id)?.length) return false;
     if (filtro === "clientes" && !c.es_cliente) return false;
+    if (filtro === "no_interesa" && !noLeInteresa(c)) return false;
     if (!busqueda) return true;
     const t = busqueda.toLowerCase();
     const d = busqueda.replace(/\D/g, "");
@@ -106,6 +111,7 @@ function PaginaContactos() {
     { id: "sin_terminar", texto: "No terminaron la encuesta" },
     { id: "con_prospecto", texto: "Con prospecto" },
     { id: "clientes", texto: "Clientes" },
+    { id: "no_interesa", texto: "No les interesó" },
   ];
 
   return (
@@ -198,6 +204,7 @@ function FilaContacto({
           <p className="truncate font-semibold text-card-foreground">
             {c.nombre ?? "Sin nombre"}
             {c.es_cliente ? <span className="ml-2 rounded-full bg-etapa-cliente px-2 py-0.5 text-[11px] text-white">Cliente</span> : null}
+            {noLeInteresa(c) ? <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">No le interesó</span> : null}
           </p>
           <p className="text-xs text-muted-foreground">{telefonoBonito(c.telefono)}</p>
         </div>

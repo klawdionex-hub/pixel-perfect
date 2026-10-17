@@ -8,7 +8,7 @@ import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria } from "./equipos";
 import type { Canal } from "./motor.server";
 import type { Opcion } from "./salida";
-import { folio, responder, type Vendedor } from "./vendedores.server";
+import { folio, otraAccion, responder, type Vendedor } from "./vendedores.server";
 
 type DB = SupabaseClient<Database>;
 type Equipo = Database["public"]["Tables"]["equipos_catalogo"]["Row"];
@@ -239,6 +239,7 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
         .join("\n"),
     });
   }
+  await otraAccion(db, canal, v);
 }
 
 // ---------------------------------------------------------------- entrada
@@ -271,6 +272,7 @@ export async function atenderCotizacion(
   if (!id && /^cancelar$/i.test(texto)) {
     await guardar(db, v, null);
     await responder(canal, v, { tipo: "texto", texto: "Cotización cancelada." });
+    await otraAccion(db, canal, v);
     return true;
   }
 
