@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { CATEGORIA_SERVICIOS } from "@/lib/bot/equipos";
-import { costoDe, empresaDe, importe, pesos, totalDe, type Iva, type Partida } from "@/lib/cotizaciones/datos";
+import { costoDe, empresaDe, importe, pesos, revisarTelefono, totalDe, type Iva, type Partida } from "@/lib/cotizaciones/datos";
 import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { claves, traerConfiguracion, traerServicios, traerSolicitudes, traerUsuarios } from "@/lib/datos";
 
@@ -171,6 +171,10 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
 
   function validar() {
     if (!cliente.nombre.trim()) return "Escriba el nombre del cliente.";
+    if (cliente.telefono.trim()) {
+      const r = revisarTelefono(cliente.telefono);
+      if (!r.ok) return r.error;
+    }
     if (!vendedorId) return "Elija quién atiende.";
     if (!partidas.length) return "Agregue al menos un concepto con cantidad.";
     if (filas.some((f) => f.concepto.trim() && num(f.precio) == null)) return "Escriba el precio de todos los conceptos.";

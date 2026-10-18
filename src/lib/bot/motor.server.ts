@@ -213,8 +213,8 @@ const ULTIMO_MANT: Opcion[] = [
 ];
 
 const HORARIOS: Opcion[] = [
-  { id: "h_man", titulo: "Mañana" },
-  { id: "h_tar", titulo: "Tarde" },
+  { id: "h_man", titulo: "Por la mañana" },
+  { id: "h_tar", titulo: "Por la tarde" },
   { id: "h_cual", titulo: "Cualquier horario" },
 ];
 

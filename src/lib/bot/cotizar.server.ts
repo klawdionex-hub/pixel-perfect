@@ -3,21 +3,25 @@
 // el bot arma el PDF con la plantilla de AFPAM y se lo envía solo al vendedor para que lo revise.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
-import { costoDe, empresaDe, leerPrecio, pesos, totalDe, type Iva, type Partida } from "@/lib/cotizaciones/datos";
+import { costoDe, empresaDe, leerPrecio, pesos, revisarTelefono, totalDe, type Iva, type Partida } from "@/lib/cotizaciones/datos";
 import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria } from "./equipos";
 import type { Canal } from "./motor.server";
-import { normalizarTelefono, type Opcion } from "./salida";
+import { normalizarTelefono, type Opcion, type Salida } from "./salida";
 import { folio, otraAccion, responder, type Vendedor } from "./vendedores.server";
 
 type DB = SupabaseClient<Database>;
 type Equipo = Database["public"]["Tables"]["equipos_catalogo"]["Row"];
 
-type Pendiente = { equipo_id?: string | null; concepto: string; costo?: number | null; sugerido?: number | null };
+type Pendiente = { equipo_id?: string | null; concepto: string; costo?: number | null; sugerido?: number | null; precio?: number | null };
 
 /** Borrador guardado en usuarios_perfil.estado_bot.cot mientras el vendedor contesta. */
 export type BorradorCot = {
-  paso: "cliente" | "buscar" | "nombre" | "telefono" | "municipio" | "concepto" | "precio" | "menu";
+  paso: "cliente" | "buscar" | "nombre" | "telefono" | "municipio" | "concepto" | "precio" | "cantidad" | "menu";
+  /** Si el vendedor salió al menú (p. ej. llegó un prospecto), la cotización queda en pausa. */
+  pausada?: boolean;
+  /** Última pregunta del bot, para "Continuar cotización". */
+  ultima?: Salida | null;
   desde: string;
   solicitud_id?: string | null;
   /** Contacto del programa (prospecto o cliente existente); null si es un cliente nuevo. */
@@ -41,6 +45,20 @@ function borradorDe(v: Vendedor, ahora: Date): BorradorCot | null {
   if (!b) return null;
   if (ahora.getTime() - new Date(b.desde).getTime() > VIGENCIA_HORAS * 3600000) return null;
   return b;
+}
+
+/** Cotización a medias de este vendedor (para ofrecer "Continuar cotización" en el menú). */
+export function cotizacionEnCurso(v: Vendedor, ahora: Date): BorradorCot | null {
+  return borradorDe(v, ahora);
+}
+
+/** Deja la cotización en pausa para que lo que escriba el vendedor no se tome como respuesta. */
+export async function pausarCotizacion(db: DB, v: Vendedor, ahora: Date) {
+  const b = borradorDe(v, ahora);
+  if (b && !b.pausada) {
+    b.pausada = true;
+    await guardar(db, v, b);
+  }
 }
 
 async function guardar(db: DB, v: Vendedor, b: BorradorCot | null) {
@@ -279,7 +297,7 @@ async function preguntarPrecio(db: DB, canal: Canal, v: Vendedor, b: BorradorCot
     await guardar(db, v, b);
     return responder(canal, v, {
       tipo: "botones",
-      texto: `${p.concepto}\nPrecio del catálogo: *${pesos(p.sugerido)}*.`,
+      texto: `${p.concepto}\nPrecio unitario del catálogo: *${pesos(p.sugerido)}*.`,
       opciones: [
         { id: "cot:usar", titulo: "Usar este precio" },
         { id: "cot:otro", titulo: "Otro precio" },
@@ -288,10 +306,53 @@ async function preguntarPrecio(db: DB, canal: Canal, v: Vendedor, b: BorradorCot
   }
   b.paso = "precio";
   await guardar(db, v, b);
+  return responder(canal, v, { tipo: "texto", texto: `${p.concepto}\nEscriba el *precio unitario*, por ejemplo *18000*.` });
+}
+
+/** Después del precio: cuántas unidades. */
+async function preguntarCantidad(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
+  b.paso = "menu";
+  await guardar(db, v, b);
   return responder(canal, v, {
-    tipo: "texto",
-    texto: `${p.concepto}\nEscriba el precio, por ejemplo *18000*. Si son varias piezas, escriba cantidad por precio: *2 x 350*.`,
+    tipo: "botones",
+    texto: `${b.pendiente?.concepto ?? ""}\nPrecio unitario: *${pesos(b.pendiente?.precio ?? 0)}*.\n¿Cuántas unidades?`,
+    opciones: [
+      { id: "cot:cant:1", titulo: "1" },
+      { id: "cot:cant:2", titulo: "2" },
+      { id: "cot:cant:otra", titulo: "Otra cantidad" },
+    ],
   });
+}
+
+/** Valida el precio escrito: avisa si es 0 o si queda por debajo del costo del catálogo. */
+async function fijarPrecio(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, precio: number) {
+  if (!b.pendiente) return preguntarMas(db, canal, v, b);
+  b.pendiente.precio = precio;
+  const costo = b.pendiente.costo;
+  if (precio === 0 || (costo != null && precio < costo)) {
+    b.paso = "menu";
+    await guardar(db, v, b);
+    return responder(canal, v, {
+      tipo: "botones",
+      texto:
+        precio === 0
+          ? `El precio de "${b.pendiente.concepto}" quedó en *$0.00*. ¿Es correcto (por ejemplo, va incluido)?`
+          : `El precio ${pesos(precio)} es *menor que el costo* registrado (${pesos(costo!)}). ¿Es correcto?`,
+      opciones: [
+        { id: "cot:pok", titulo: "Sí, es correcto" },
+        { id: "cot:otro", titulo: "Corregir precio" },
+      ],
+    });
+  }
+  return preguntarCantidad(db, canal, v, b);
+}
+
+/** Agrega la partida pendiente con la cantidad indicada. */
+async function agregarPartida(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, cantidad: number) {
+  const p = b.pendiente;
+  if (!p || p.precio == null) return preguntarMas(db, canal, v, b);
+  b.partidas.push({ equipo_id: p.equipo_id ?? null, concepto: p.concepto, cantidad, precio: p.precio, costo: p.costo ?? null });
+  return preguntarMas(db, canal, v, b);
 }
 
 async function resumenFinal(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
@@ -430,7 +491,9 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
     await responder(canal, v, {
       tipo: "texto",
       texto: [
-        `Solo para usted (no aparece en el PDF): costo aproximado ${pesos(costoConocido)}, ganancia aproximada *${pesos(ganancia)}*${venta ? ` (${Math.round((ganancia / venta) * 100)}%)` : ""}.`,
+        ganancia >= 0
+          ? `Solo para usted (no aparece en el PDF): costo aproximado ${pesos(costoConocido)}, ganancia aproximada *${pesos(ganancia)}*${venta ? ` (${Math.round((ganancia / venta) * 100)}%)` : ""}.`
+          : `*Atención:* con estos precios la cotización deja una *pérdida* aproximada de ${pesos(-ganancia)} (costo ${pesos(costoConocido)}, venta ${pesos(venta)}). Revise los precios y las cantidades antes de enviarla.`,
         sinCosto.length ? `Sin costo registrado, no incluidos en el cálculo: ${sinCosto.join("; ")}.` : "",
       ]
         .filter(Boolean)
@@ -447,6 +510,31 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
  * Devuelve true si el mensaje era parte de la cotización.
  */
 export async function atenderCotizacion(
+  db: DB,
+  canalOriginal: Canal,
+  v: Vendedor,
+  entrada: { texto?: string | undefined; opcionId?: string | undefined },
+  ahora: Date,
+): Promise<boolean> {
+  // Se guarda la última pregunta enviada para poder retomarla con "Continuar cotización".
+  let ultima: Salida | null = null;
+  const canal: Canal = {
+    ...canalOriginal,
+    vendedor: async (t, n, sal) => {
+      if (sal.tipo === "lista" || sal.tipo === "botones" || sal.tipo === "texto") ultima = sal;
+      return canalOriginal.vendedor(t, n, sal);
+    },
+  };
+  const atendido = await atender(db, canal, v, entrada, ahora);
+  const b = borradorDe(v, ahora);
+  if (atendido && b && ultima && !b.pausada) {
+    b.ultima = ultima;
+    await guardar(db, v, b);
+  }
+  return atendido;
+}
+
+async function atender(
   db: DB,
   canal: Canal,
   v: Vendedor,
@@ -466,6 +554,26 @@ export async function atenderCotizacion(
       return true;
     }
     return false;
+  }
+  if (id === "cot:seguir") {
+    b.pausada = false;
+    await guardar(db, v, b);
+    if (b.ultima) await responder(canal, v, b.ultima);
+    else await iniciarCotizacion(db, canal, v, ahora);
+    return true;
+  }
+  // Cualquier otra opción del menú (o de un aviso) deja la cotización en pausa.
+  if (id && !id.startsWith("cot:")) {
+    if (!b.pausada) {
+      b.pausada = true;
+      await guardar(db, v, b);
+    }
+    return false;
+  }
+  if (b.pausada) {
+    if (id.startsWith("cot:")) {
+      b.pausada = false;
+    } else return false;
   }
   if (!id && /^cancelar$/i.test(texto)) {
     await guardar(db, v, null);
@@ -492,12 +600,12 @@ export async function atenderCotizacion(
     }
     if (b.paso === "telefono") {
       if (!/^omitir$/i.test(texto)) {
-        const d = texto.replace(/\D/g, "");
-        if (d.length < 10) {
-          await responder(canal, v, { tipo: "texto", texto: 'El teléfono debe tener 10 dígitos, por ejemplo *5512345678*. O escriba "omitir".' });
+        const r = revisarTelefono(texto);
+        if (!r.ok) {
+          await responder(canal, v, { tipo: "texto", texto: `${r.error} O escriba "omitir".` });
           return true;
         }
-        b.cliente.telefono = normalizarTelefono(d);
+        b.cliente.telefono = normalizarTelefono(r.diez);
       }
       await pedirMunicipio(db, canal, v, b);
       return true;
@@ -514,11 +622,23 @@ export async function atenderCotizacion(
     if (b.paso === "precio" && b.pendiente) {
       const lp = leerPrecio(texto);
       if (!lp) {
-        await responder(canal, v, { tipo: "texto", texto: 'No entendí el precio. Escriba solo números, por ejemplo *8500*, o *2 x 350*. Para salir escriba "cancelar".' });
+        await responder(canal, v, { tipo: "texto", texto: 'No entendí el precio. Escriba solo el precio unitario con números, por ejemplo *8500*. Para salir escriba "cancelar".' });
         return true;
       }
-      b.partidas.push({ equipo_id: b.pendiente.equipo_id ?? null, concepto: b.pendiente.concepto, cantidad: lp.cantidad, precio: lp.precio, costo: b.pendiente.costo ?? null });
-      await preguntarMas(db, canal, v, b);
+      // Si escribe "2 x 350" se toman la cantidad y el precio de una vez.
+      if (lp.cantidad > 1) {
+        b.pendiente.precio = lp.precio;
+        await agregarPartida(db, canal, v, b, lp.cantidad);
+      } else await fijarPrecio(db, canal, v, b, lp.precio);
+      return true;
+    }
+    if (b.paso === "cantidad" && b.pendiente) {
+      const n = Number(texto.replace(/[^\d]/g, ""));
+      if (!/^\s*\d{1,5}\s*(piezas?|unidades?|pzas?)?\s*$/i.test(texto) || !n) {
+        await responder(canal, v, { tipo: "texto", texto: "Escriba solo la cantidad de unidades con números, por ejemplo *3*." });
+        return true;
+      }
+      await agregarPartida(db, canal, v, b, n);
       return true;
     }
     return false;
@@ -667,14 +787,25 @@ export async function atenderCotizacion(
     return true;
   }
   if (accion === "usar" && b.pendiente?.sugerido != null) {
-    b.partidas.push({ equipo_id: b.pendiente.equipo_id ?? null, concepto: b.pendiente.concepto, cantidad: 1, precio: b.pendiente.sugerido, costo: b.pendiente.costo ?? null });
-    await preguntarMas(db, canal, v, b);
+    await fijarPrecio(db, canal, v, b, b.pendiente.sugerido);
     return true;
   }
   if (accion === "otro" && b.pendiente) {
     b.paso = "precio";
     await guardar(db, v, b);
-    await responder(canal, v, { tipo: "texto", texto: "Escriba el precio, por ejemplo *8500*, o cantidad por precio: *2 x 350*." });
+    await responder(canal, v, { tipo: "texto", texto: "Escriba el *precio unitario*, por ejemplo *8500*. Después le pregunto cuántas unidades." });
+    return true;
+  }
+  if (accion === "pok" && b.pendiente) {
+    await preguntarCantidad(db, canal, v, b);
+    return true;
+  }
+  if (accion === "cant" && b.pendiente) {
+    if (a === "otra") {
+      b.paso = "cantidad";
+      await guardar(db, v, b);
+      await responder(canal, v, { tipo: "texto", texto: "Escriba la cantidad de unidades, por ejemplo *70*." });
+    } else await agregarPartida(db, canal, v, b, Number(a) || 1);
     return true;
   }
   if (accion === "libre") {

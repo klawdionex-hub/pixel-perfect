@@ -99,3 +99,20 @@ export function leerPrecio(t: string): { cantidad: number; precio: number } | nu
   }
   return null;
 }
+
+/**
+ * Revisa que un teléfono de México parezca real: 10 dígitos (se aceptan con 52 o 521 al inicio),
+ * que no empiece con 0 o 1 y que no sea una serie como 1111111111 o 1234567890.
+ * Devuelve los 10 dígitos o un mensaje de error.
+ */
+export function revisarTelefono(t: string): { ok: true; diez: string } | { ok: false; error: string } {
+  let d = t.replace(/\D/g, "");
+  if (d.length === 13 && d.startsWith("521")) d = d.slice(3);
+  else if (d.length === 12 && d.startsWith("52")) d = d.slice(2);
+  if (d.length !== 10) return { ok: false, error: "El teléfono debe tener 10 dígitos, por ejemplo 5512345678." };
+  if (/^[01]/.test(d)) return { ok: false, error: "Los teléfonos de México no empiezan con 0 ni con 1. Revise el número." };
+  if (/^(\d)\1+$/.test(d) || "01234567890123456789".includes(d) || "98765432109876543210".includes(d) || /(\d)\1{6,}/.test(d)) {
+    return { ok: false, error: "Ese número no parece real. Revise que esté bien escrito." };
+  }
+  return { ok: true, diez: d };
+}

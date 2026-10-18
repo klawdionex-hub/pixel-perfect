@@ -322,15 +322,19 @@ await vendedor("v2", "Motor de cremallera", "cot:cat:2");
 await vendedor("v2", "AFPAM CR-800", "cot:eq:e3");
 afirmar(log.at(-1)!.includes("$8,500"), "ofrece el precio del catálogo");
 await vendedor("v2", "Usar este precio", "cot:usar");
+afirmar(log.at(-1)!.includes("¿Cuántas unidades?"), "después del precio pregunta la cantidad");
+await vendedor("v2", "1", "cot:cant:1");
 await vendedor("v2", "Servicios y extras", "cot:serv");
 await vendedor("v2", "Instalación", "cot:eq:s1");
 await vendedor("v2", "Otro precio", "cot:otro");
 await vendedor("v2", "3000");
+await vendedor("v2", "1", "cot:cant:1");
 await vendedor("v2", "Concepto a mano", "cot:libre");
 await vendedor("v2", "Fabricación de portón elevadizo 3 x 2.4 m");
 await vendedor("v2", "abc");
 afirmar(log.at(-1)!.includes("No entendí el precio"), "precio no válido se vuelve a pedir");
 await vendedor("v2", "18,000");
+await vendedor("v2", "1", "cot:cant:1");
 await vendedor("v2", "Controles", "cot:serv");
 await vendedor("v2", "Instalación", "cot:eq:s1");
 await vendedor("v2", "Otro precio", "cot:otro");
@@ -392,6 +396,10 @@ afirmar(log.at(-1)!.includes("nombre completo"), "rechaza un nombre que no es no
 await vendedor("v2", "roberto gómez");
 await vendedor("v2", "123");
 afirmar(log.at(-1)!.includes("10 dígitos"), "valida el teléfono");
+await vendedor("v2", "1111111111");
+afirmar(log.at(-1)!.includes("no empiezan con 0 ni con 1"), "rechaza teléfonos que empiezan con 1");
+await vendedor("v2", "5555555555");
+afirmar(log.at(-1)!.includes("no parece real"), "rechaza teléfonos de un solo dígito repetido");
 await vendedor("v2", "55 4444 3333");
 await vendedor("v2", "Chalco");
 afirmar(log.at(-1)!.includes("¿Qué servicio va a cotizar?"), "cliente nuevo: pregunta el servicio");
@@ -400,6 +408,7 @@ afirmar(log.at(-1)!.includes("¿Qué equipo va a cotizar?") && log.at(-1)!.inclu
 await vendedor("v2", "Concepto a mano", "cot:libre");
 await vendedor("v2", "Portón corredizo 4 x 2 m");
 await vendedor("v2", "15000");
+await vendedor("v2", "1", "cot:cant:1");
 await vendedor("v2", "Terminar", "cot:fin");
 await vendedor("v2", "No mencionar", "cot:iva:no");
 marca = log.length;
@@ -447,11 +456,59 @@ await vendedor("v2", "Mantenimiento", "cot:srv:9");
 await vendedor("v2", "Concepto a mano", "cot:libre");
 await vendedor("v2", "Mantenimiento preventivo");
 await vendedor("v2", "1200");
+await vendedor("v2", "1", "cot:cant:1");
 await vendedor("v2", "Terminar", "cot:fin");
 await vendedor("v2", "No mencionar", "cot:iva:no");
 await vendedor("v2", "PDF sin marca", "cot:pdf:no");
 const solLucia = tablas["solicitudes"]!.at(-1)!;
 afirmar(tablas["solicitudes"]!.length === antesLucia + 1 && solLucia.contacto_id === lucia.id && solLucia.servicio_codigo === 9 && solLucia.vendedor_id === "v2", "cliente existente: se crea su prospecto nuevo");
+
+// --- Cantidad, precio en cero y por debajo del costo
+await vendedor("v2", "Hacer cotización", "cmd:cotizar");
+await vendedor("v2", "Cliente existente", "cot:existente");
+await vendedor("v2", "lucia");
+await vendedor("v2", "Lucía", `cot:con:${tablas["contactos"]!.find((c) => c.telefono === "+525592222222")!.id}`);
+await vendedor("v2", "Continuar", "cot:ok");
+await vendedor("v2", "Motor de cremallera", "cot:cat:2");
+await vendedor("v2", "AFPAM CR-800", "cot:eq:e3");
+await vendedor("v2", "Otro precio", "cot:otro");
+await vendedor("v2", "3");
+afirmar(log.at(-1)!.includes("menor que el costo"), "avisa si el precio es menor que el costo");
+await vendedor("v2", "Corregir precio", "cot:otro");
+await vendedor("v2", "9000");
+await vendedor("v2", "Otra cantidad", "cot:cant:otra");
+await vendedor("v2", "tres");
+afirmar(log.at(-1)!.includes("solo la cantidad"), "la cantidad debe ser un número");
+await vendedor("v2", "3");
+afirmar(log.at(-1)!.includes("AFPAM CR-800") && log.at(-1)!.includes("3 × $9,000.00"), "agrega la partida con la cantidad elegida");
+await vendedor("v2", "Concepto a mano", "cot:libre");
+await vendedor("v2", "Cableado incluido");
+await vendedor("v2", "0");
+afirmar(log.at(-1)!.includes("quedó en *$0.00*"), "avisa si el precio es cero");
+await vendedor("v2", "Sí, es correcto", "cot:pok");
+await vendedor("v2", "1", "cot:cant:1");
+
+// --- Un prospecto se atraviesa: pausa y Continuar cotización
+await vendedor("v2", "Concepto a mano", "cot:libre");
+const preguntaPendiente = log.at(-1)!;
+await vendedor("v2", "Ver detalles", `ver:${tablas["solicitudes"]!.find((x) => !x.vendedor_id)?.id ?? "x"}`);
+await vendedor("v2", "comandos");
+afirmar(log.at(-1)!.includes("Continuar cotización"), "el menú ofrece continuar la cotización a medias");
+marca = log.length;
+await vendedor("v2", "hola");
+afirmar(!log.slice(marca).some((l) => l.includes("Escriba el precio")), "con la cotización en pausa, lo escrito no se toma como concepto");
+await vendedor("v2", "Continuar cotización", "cot:seguir");
+afirmar(log.at(-1) === preguntaPendiente, "Continuar cotización repite la última pregunta");
+await vendedor("v2", "Visita técnica");
+afirmar(log.at(-1)!.includes("Visita técnica") && log.at(-1)!.includes("precio unitario"), "la cotización sigue donde se quedó");
+await vendedor("v2", "cancelar");
+
+// --- Horario con "Por la mañana"
+const H = "+525590000001";
+for (const t of ["Hola", "Teresa", "1", "Texcoco", "corredizo", "Sí, ya lo tengo", "3 x 2", "omitir"]) await cliente(H, t);
+afirmar(log.at(-1)!.includes("Por la mañana") && log.at(-1)!.includes("Por la tarde"), "horario: Por la mañana / Por la tarde");
+await cliente(H, "mañana");
+afirmar(solDe(H)?.datos.horario_preferido === "Por la mañana", "escribir mañana elige Por la mañana");
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

@@ -6,7 +6,7 @@ import type { Database, Json } from "@/integrations/supabase/types";
 import { ETIQUETAS_DATOS, moneda } from "@/lib/afpam";
 import type { Canal } from "./motor.server";
 import type { Opcion, Salida } from "./salida";
-import { atenderCotizacion } from "./cotizar.server";
+import { atenderCotizacion, cotizacionEnCurso, pausarCotizacion } from "./cotizar.server";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria, pieDeFoto } from "./equipos";
 import { enHorarioLaboral } from "./textos";
 
@@ -701,7 +701,10 @@ export async function procesarMensajeVendedor(
   if (/^ver la lista$/i.test(texto)) return enviarSinAsignar(db, canal, v);
 
   // Solo la palabra COMANDOS abre el menú.
-  if (/^#?\s*comandos?[.!]?$/i.test(texto)) return enviarMenu(db, canal, v);
+  if (/^#?\s*comandos?[.!]?$/i.test(texto)) {
+    await pausarCotizacion(db, v, ahora);
+    return enviarMenu(db, canal, v);
+  }
   // Cotización en curso (o el botón "Hacer cotización").
   if (await atenderCotizacion(db, canal, v, entrada, ahora)) return;
 
@@ -801,7 +804,12 @@ async function enviarMenu(db: DB, canal: Canal, v: Vendedor, mas = false, o: { t
     ...(m.descripcion ? { descripcion: m.descripcion } : {}),
     seccion: "Material de venta",
   });
-  const extras = (o.extras ?? []).slice(0, 2);
+  // Si dejó una cotización a medias, la primera opción es retomarla.
+  const enCurso = cotizacionEnCurso(v, new Date());
+  const extras = [
+    ...(enCurso ? [{ id: "cot:seguir", titulo: "Continuar cotización", descripcion: enCurso.cliente.nombre ? `Para ${enCurso.cliente.nombre}` : "Donde se quedó", seccion: "En curso" }] : []),
+    ...(o.extras ?? []),
+  ].slice(0, 2);
   const espacio = 10 - MENU_FIJO.length - extras.length;
   const enPrimera = materiales.length > espacio ? espacio - 1 : espacio;
   if (mas) {
