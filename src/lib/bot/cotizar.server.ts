@@ -500,7 +500,7 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
         .join("\n"),
     });
   }
-  await otraAccion(db, canal, v);
+  await otraAccion(db, canal, v, [{ id: "cmd:cotizar", titulo: "Otra cotización" }]);
 }
 
 // ---------------------------------------------------------------- entrada
@@ -578,7 +578,7 @@ async function atender(
   if (!id && /^cancelar$/i.test(texto)) {
     await guardar(db, v, null);
     await responder(canal, v, { tipo: "texto", texto: "Cotización cancelada." });
-    await otraAccion(db, canal, v);
+    await otraAccion(db, canal, v, [{ id: "cmd:cotizar", titulo: "Otra cotización" }]);
     return true;
   }
 

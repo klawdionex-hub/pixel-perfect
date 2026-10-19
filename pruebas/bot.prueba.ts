@@ -253,7 +253,7 @@ await vendedor("v2", "Ver mis prospectos", "cmd:mis");
 afirmar(log.slice(marca).some((l) => l.includes(suya.codigo)), "Ver mis prospectos lista los suyos");
 marca = log.length;
 await vendedor("v2", suya.codigo, `ficha:${suya.id}`);
-afirmar(log.slice(marca).some((l) => l.includes("Registrar resultado")), "la ficha trae el botón Registrar resultado");
+afirmar(log.at(-1)!.includes("Resultado de este") && log.at(-1)!.includes("Ver otro prospecto") && log.at(-1)!.includes("Menú"), "la ficha termina con Resultado de este / Ver otro prospecto / Menú");
 
 // Ventas del mes
 await vendedor("v2", `${suya.numero} vendido 8000`);
@@ -509,6 +509,32 @@ for (const t of ["Hola", "Teresa", "1", "Texcoco", "corredizo", "Sí, ya lo teng
 afirmar(log.at(-1)!.includes("Por la mañana") && log.at(-1)!.includes("Por la tarde"), "horario: Por la mañana / Por la tarde");
 await cliente(H, "mañana");
 afirmar(solDe(H)?.datos.horario_preferido === "Por la mañana", "escribir mañana elige Por la mañana");
+
+// --- Varios a la vez y Ver datos desde el seguimiento
+const libres = tablas["solicitudes"]!.filter((x) => !x.vendedor_id && x.etapa === 1).slice(0, 3);
+for (const x of libres) x.vendedor_id = "v1";
+reloj.ahora = new Date(reloj.ahora.getTime() + 3600000);
+tablas["usuarios_perfil"]![0]!.ultimo_mensaje_wa = reloj.ahora.toISOString();
+await vendedor("v1", "Registrar resultado", "cmd:resultado");
+afirmar(log.at(-1)!.includes("Varios a la vez"), "Registrar resultado ofrece Varios a la vez");
+await vendedor("v1", "Varios a la vez", "varios:");
+const numerados = ((tablas["usuarios_perfil"]![0]!.estado_bot as { numerados?: string[] }).numerados ?? []);
+afirmar(log.at(-1)!.includes("1)") && numerados.length >= 3, "muestra los prospectos numerados");
+await vendedor("v1", "hola");
+afirmar(log.at(-1)!.includes("solo los números"), "pide solo números");
+const elegir3 = libres.map((x) => numerados.indexOf(x.id) + 1);
+await vendedor("v1", elegir3.join(", "));
+afirmar(log.at(-1)!.includes("Eligió 3 prospecto(s)") && !log.at(-1)!.includes("Vendido"), "pregunta el resultado para los elegidos (sin Vendido)");
+await vendedor("v1", "Cotizado", "resv:2");
+afirmar(libres.every((x) => x.etapa === 2) && log.slice(-2)[0]!.includes("en 3 prospecto(s)"), "registra el mismo resultado en varios");
+afirmar(log.at(-1)!.includes("Registrar otro") && log.at(-1)!.includes("Menú"), "después ofrece Registrar otro");
+await vendedor("v1", libres[0]!.codigo, `seg:${libres[0]!.id}`);
+afirmar(log.at(-1)!.includes("Ver datos del prospecto"), "el seguimiento ofrece Ver datos del prospecto");
+marca = log.length;
+await vendedor("v1", "Ver datos del prospecto", `ficha:${libres[0]!.id}`);
+afirmar(log.slice(marca).some((l) => l.includes("[Contacto]") || l.includes("Datos del prospecto")), "Ver datos manda los datos del prospecto");
+await vendedor("v1", "Material", "cmd:material");
+afirmar(log.at(-1)!.includes("Elija el material"), "Otro material abre la lista de material");
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

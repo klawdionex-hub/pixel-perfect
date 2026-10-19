@@ -21,8 +21,11 @@ export type Vendedor = Pick<Perfil, "id" | "nombre" | "whatsapp" | "activo"> &
 
 /** Lo que el bot espera que el vendedor responda a continuación. */
 type EstadoVendedor = {
-  esperando?: "monto" | "motivo";
+  esperando?: "monto" | "motivo" | "varios";
   solicitud_id?: string;
+  /** "Varios a la vez": prospectos numerados que se le mostraron y los que eligió. */
+  numerados?: string[];
+  seleccion?: string[];
   desde?: string;
   /** Última vez que se le envió la lista de prospectos (evita ciclos con respuestas automáticas). */
   ultima_ayuda?: string;
@@ -396,7 +399,10 @@ function preguntaSeguimiento(s: SolicitudConContacto): Salida {
     tipo: "lista",
     texto: `Seguimiento del prospecto ${folio(s)} (${s.contactos?.nombre ?? "Sin nombre"}, ${s.contactos?.municipio ?? "sin municipio"}).\n¿Cuál es su estado actual?`,
     boton: "Ver opciones",
-    opciones: RESULTADOS.map((r) => ({ id: `res:${r.clave}:${s.id}`, titulo: r.titulo })),
+    opciones: [
+      ...RESULTADOS.map((r) => ({ id: `res:${r.clave}:${s.id}`, titulo: r.titulo })),
+      { id: `ficha:${s.id}`, titulo: "Ver datos del prospecto", descripcion: "Nombre, teléfono y datos del trabajo" },
+    ],
   };
 }
 
@@ -551,7 +557,7 @@ async function registrarResultado(db: DB, canal: Canal, v: Vendedor, clave: stri
   if (r.etapa === null) {
     await db.from("solicitudes").update({ control_bot: control as unknown as Json }).eq("id", s.id);
     await responder(canal, v, { tipo: "texto", texto: `Sin cambios en ${folio(s)}. Le volveré a preguntar más adelante.` });
-    return otraAccion(db, canal, v);
+    return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
   }
   if (r.clave === "n") {
     await db.from("solicitudes").update({ control_bot: control as unknown as Json, ...asignar }).eq("id", s.id);
@@ -580,7 +586,7 @@ async function registrarResultado(db: DB, canal: Canal, v: Vendedor, clave: stri
     .select("codigo")
     .single();
   await responder(canal, v, { tipo: "texto", texto: `Registrado: ${nueva?.codigo ?? s.codigo} – ${r.titulo}.` });
-  return otraAccion(db, canal, v);
+  return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
 }
 
 /** Cierra el prospecto como "No le interesó" y deja marcado al cliente en Contactos. */
@@ -594,7 +600,7 @@ async function cerrarNoLeIntereso(db: DB, canal: Canal, v: Vendedor, solicitudId
     tipo: "texto",
     texto: `Registrado: ${s?.codigo ?? ""} – No le interesó. El número quedó guardado en Contactos como "No le interesó".`,
   });
-  return otraAccion(db, canal, v);
+  return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
 }
 
 function leerMonto(t: string): number | null {
@@ -620,7 +626,7 @@ async function cerrarVenta(db: DB, canal: Canal, v: Vendedor, solicitudId: strin
     tipo: "texto",
     texto: `Registrado: ${s?.codigo ?? ""} – ${moneda(monto)} – ${v.nombre}. Comisión: ${moneda(s?.comision ?? null)}.`,
   });
-  return otraAccion(db, canal, v);
+  return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
 }
 
 async function cerrarPerdido(db: DB, canal: Canal, v: Vendedor, solicitudId: string, motivo: string | null, ahora: Date) {
@@ -635,7 +641,7 @@ async function cerrarPerdido(db: DB, canal: Canal, v: Vendedor, solicitudId: str
     .single();
   await guardarEstadoVendedor(db, v, {});
   await responder(canal, v, { tipo: "texto", texto: `Registrado: ${s?.codigo ?? ""} – Perdido.` });
-  return otraAccion(db, canal, v);
+  return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
 }
 
 /** Procesa un mensaje de un usuario del panel (vendedor o dueño). */
@@ -652,12 +658,18 @@ export async function procesarMensajeVendedor(
   const id = entrada.opcionId ?? "";
   const [accion, a, b] = id.split(":");
   if (accion === "pendientes" || id === "cmd:pendientes") return enviarSinAsignar(db, canal, v);
-  if (id === "cmd:menu") return enviarMenu(db, canal, v);
+  if (id === "cmd:menu") {
+    await olvidarVarios(db, v);
+    return enviarMenu(db, canal, v);
+  }
   if (id === "cmd:mas") return enviarMenu(db, canal, v, true);
   if (id === "cmd:mis") return enviarMisProspectos(db, canal, v, "ficha");
   if (id === "cmd:resultado") return enviarMisProspectos(db, canal, v, "seg");
   if (id === "cmd:ventas") return enviarMisVentas(db, canal, v, ahora);
   if (accion === "mat" && a) return enviarMaterial(db, canal, v, a, ahora);
+  if (id === "cmd:material") return enviarListaMaterial(db, canal, v);
+  if (id === "varios:") return pedirVarios(db, canal, v, ahora);
+  if (accion === "resv" && a) return registrarVarios(db, canal, v, a, ahora);
   if (id === "cmd:catalogo") return enviarCategorias(db, canal, v);
   if (accion === "cat" && a) return enviarEquiposDeCategoria(db, canal, v, Number(a), Number(b ?? 0));
   if (accion === "eq" && a) return enviarEquipo(db, canal, v, a, ahora);
@@ -703,6 +715,7 @@ export async function procesarMensajeVendedor(
   // Solo la palabra COMANDOS abre el menú.
   if (/^#?\s*comandos?[.!]?$/i.test(texto)) {
     await pausarCotizacion(db, v, ahora);
+    await olvidarVarios(db, v);
     return enviarMenu(db, canal, v);
   }
   // Cotización en curso (o el botón "Hacer cotización").
@@ -716,7 +729,27 @@ export async function procesarMensajeVendedor(
   }
 
   const estado = (v.estado_bot ?? {}) as EstadoVendedor;
-  const vigente = estado.esperando && estado.solicitud_id && horasDesde(estado.desde, ahora) < 24;
+  if (estado.esperando === "varios" && texto && horasDesde(estado.desde, ahora) < 2) {
+    if (/^cancelar$/i.test(texto)) {
+      await guardarEstadoVendedor(db, v, {});
+      await responder(canal, v, { tipo: "texto", texto: "Cancelado. No se registró ningún cambio." });
+      return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
+    }
+    const numeros = [...new Set((texto.match(/\d+/g) ?? []).map(Number))];
+    const elegidos = numeros.map((n) => estado.numerados?.[n - 1]).filter((x): x is string => !!x);
+    if (!/^[\d\s,;y.-]+$/i.test(texto) || !elegidos.length) {
+      return responder(canal, v, { tipo: "texto", texto: 'Escriba solo los números de la lista, separados por coma. Por ejemplo: *1, 3, 4*. Para salir escriba "cancelar".' });
+    }
+    await guardarEstadoVendedor(db, v, { ...estado, seleccion: elegidos });
+    return responder(canal, v, {
+      tipo: "lista",
+      texto: `Eligió ${elegidos.length} prospecto(s). ¿Qué resultado les registro?\n\nLas ventas se registran una por una porque llevan monto.`,
+      boton: "Ver resultados",
+      opciones: RESULTADOS.filter((r) => RESULTADOS_VARIOS.includes(r.clave)).map((r) => ({ id: `resv:${r.clave}`, titulo: r.titulo })),
+    });
+  }
+
+  const vigente = estado.esperando && estado.esperando !== "varios" && estado.solicitud_id && horasDesde(estado.desde, ahora) < 24;
   if (vigente && texto) {
     if (/^cancelar$/i.test(texto)) {
       await guardarEstadoVendedor(db, v, {});
@@ -791,10 +824,22 @@ const MENU_FIJO: Opcion[] = [
 ];
 
 /** Menú principal (o la segunda página de material con "mas"). Una lista de WhatsApp admite 10 filas. */
-/** Al terminar una acción del menú: "¿Desea hacer alguna otra acción?" con el menú de nuevo. */
-export function otraAccion(db: DB, canal: Canal, v: Vendedor, extras: Opcion[] = []) {
-  return enviarMenu(db, canal, v, false, { texto: "¿Desea hacer alguna otra acción?", extras });
+/**
+ * Al terminar una acción: "¿Desea hacer alguna otra acción?" con botones para repetir lo mismo
+ * (hasta 2) y "Menú", para no tener que pasar siempre por el menú completo.
+ */
+export function otraAccion(_db: DB, canal: Canal, v: Vendedor, repetir: Opcion[] = []) {
+  return responder(canal, v, {
+    tipo: "botones",
+    texto: "¿Desea hacer alguna otra acción?",
+    opciones: [...repetir.slice(0, 2), { id: "cmd:menu", titulo: "Menú" }],
+  });
 }
+
+const SIGUIENTE_RESULTADO: Opcion[] = [
+  { id: "cmd:resultado", titulo: "Registrar otro" },
+  { id: "cmd:mis", titulo: "Ver mis prospectos" },
+];
 
 async function enviarMenu(db: DB, canal: Canal, v: Vendedor, mas = false, o: { texto?: string; extras?: Opcion[] } = {}) {
   const materiales = await materialesPara(db, v);
@@ -849,18 +894,83 @@ async function enviarMisProspectos(db: DB, canal: Canal, v: Vendedor, para: "fic
       opciones: [{ id: "cmd:pendientes", titulo: "Ver sin vendedor" }, { id: "cmd:menu", titulo: "Regresar al menú" }],
     });
   }
+  const opciones: Opcion[] = abiertas.slice(0, para === "seg" && abiertas.length > 1 ? 9 : 10).map(
+    (s): Opcion => ({
+      id: `${para}:${s.id}`,
+      titulo: folio(s),
+      descripcion: `${s.contactos?.nombre ?? "Sin nombre"} · ${s.contactos?.municipio ?? ""}`.trim(),
+    }),
+  );
+  if (para === "seg" && abiertas.length > 1) {
+    opciones.unshift({ id: "varios:", titulo: "Varios a la vez", descripcion: "El mismo resultado para varios prospectos" });
+  }
   return responder(canal, v, {
     tipo: "lista",
     texto: para === "ficha" ? "Elija el prospecto para ver su ficha." : "¿De qué prospecto desea registrar el resultado?",
     boton: "Ver prospectos",
-    opciones: abiertas.map(
-      (s): Opcion => ({
-        id: `${para}:${s.id}`,
-        titulo: folio(s),
-        descripcion: `${s.contactos?.nombre ?? "Sin nombre"} · ${s.contactos?.municipio ?? ""}`.trim(),
-      }),
-    ),
+    opciones,
   });
+}
+
+/** Varios a la vez: muestra los prospectos numerados para que escriba cuáles. */
+async function pedirVarios(db: DB, canal: Canal, v: Vendedor, ahora: Date) {
+  const { data } = await db
+    .from("solicitudes")
+    .select("*, contactos(*)")
+    .eq("vendedor_id", v.id)
+    .in("etapa", [1, 2, 3])
+    .order("creada_en", { ascending: false })
+    .limit(30);
+  const abiertas = (data ?? []) as SolicitudConContacto[];
+  if (!abiertas.length) return enviarMisProspectos(db, canal, v, "seg");
+  await guardarEstadoVendedor(db, v, { ...((v.estado_bot ?? {}) as EstadoVendedor), esperando: "varios", numerados: abiertas.map((s) => s.id), seleccion: [], desde: ahora.toISOString() });
+  const lineas = abiertas.map((s, i) => `${i + 1}) ${folio(s)} · ${s.contactos?.nombre ?? "Sin nombre"}${s.contactos?.municipio ? ` · ${s.contactos.municipio}` : ""}`);
+  return responder(canal, v, {
+    tipo: "texto",
+    texto: `*Varios a la vez.* Estos son sus prospectos abiertos:\n\n${lineas.join("\n")}\n\nEscriba los números de los que quiere registrar, separados por coma. Por ejemplo: *1, 3, 4*\nPara salir escriba "cancelar".`,
+  });
+}
+
+const RESULTADOS_VARIOS = ["2", "3", "n", "0", "="];
+
+/** Al abrir el menú se descarta una selección de "Varios a la vez" que quedó a medias. */
+async function olvidarVarios(db: DB, v: Vendedor) {
+  const estado = (v.estado_bot ?? {}) as EstadoVendedor;
+  if (estado.esperando !== "varios") return;
+  const { esperando: _e, numerados: _n, seleccion: _s, ...resto } = estado;
+  await guardarEstadoVendedor(db, v, resto);
+}
+
+/** Aplica el mismo resultado a todos los prospectos elegidos. "Vendido" se registra uno por uno (lleva monto). */
+async function registrarVarios(db: DB, canal: Canal, v: Vendedor, clave: string, ahora: Date) {
+  const estado = (v.estado_bot ?? {}) as EstadoVendedor;
+  const ids = estado.seleccion ?? [];
+  const r = RESULTADOS.find((x) => x.clave === clave);
+  if (!ids.length || !r) return enviarMisProspectos(db, canal, v, "seg");
+  const codigos: string[] = [];
+  for (const id of ids) {
+    const s = await cargarSolicitud(db, id);
+    if (!s || s.vendedor_id !== v.id || ![1, 2, 3].includes(s.etapa)) continue;
+    const control = { ...((s.control_bot ?? {}) as ControlBot), ultimo_seguimiento: ahora.toISOString() };
+    if (r.etapa === null) {
+      await db.from("solicitudes").update({ control_bot: control as unknown as Json }).eq("id", s.id);
+    } else if (clave === "n") {
+      const notas = [s.notas, "Resultado: no le interesó"].filter(Boolean).join("\n");
+      await db.from("solicitudes").update({ etapa: 0, notas, control_bot: control as unknown as Json }).eq("id", s.id);
+      if (s.contacto_id) await db.from("contactos").update({ nivel_interes: NO_LE_INTERESO }).eq("id", s.contacto_id);
+    } else {
+      await db.from("solicitudes").update({ etapa: r.etapa, control_bot: control as unknown as Json }).eq("id", s.id);
+    }
+    codigos.push(s.codigo ?? "");
+  }
+  await guardarEstadoVendedor(db, v, {});
+  await responder(canal, v, {
+    tipo: "texto",
+    texto: codigos.length
+      ? `Registrado: ${r.titulo} en ${codigos.length} prospecto(s): ${codigos.join(", ")}.${clave === "n" ? ' Los números quedaron guardados en Contactos como "No le interesó".' : ""}`
+      : "No se registró ningún cambio.",
+  });
+  return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
 }
 
 /** Ficha completa de un prospecto propio, con botón para registrar el resultado. */
@@ -874,7 +984,8 @@ async function enviarFicha(db: DB, canal: Canal, v: Vendedor, solicitudId: strin
   }
   await entregarDatos(db, canal, v, s);
   return otraAccion(db, canal, v, [
-    { id: `seg:${s.id}`, titulo: `Resultado de ${s.codigo ?? "este"}`.slice(0, 24), descripcion: "Registrar el resultado de este prospecto", seccion: "Este prospecto" },
+    { id: `seg:${s.id}`, titulo: "Resultado de este" },
+    { id: "cmd:mis", titulo: "Ver otro prospecto" },
   ]);
 }
 
@@ -909,6 +1020,18 @@ async function enviarMisVentas(db: DB, canal: Canal, v: Vendedor, ahora: Date) {
 }
 
 /** Envía el material de venta elegido y registra el uso. */
+/** Solo la lista de material de venta (para "Otro material"). */
+async function enviarListaMaterial(db: DB, canal: Canal, v: Vendedor) {
+  const materiales = await materialesPara(db, v);
+  if (!materiales.length) return otraAccion(db, canal, v);
+  return responder(canal, v, {
+    tipo: "lista",
+    texto: "Elija el material de venta.",
+    boton: "Ver material",
+    opciones: materiales.slice(0, 10).map((m): Opcion => ({ id: `mat:${m.id}`, titulo: m.titulo, ...(m.descripcion ? { descripcion: m.descripcion } : {}) })),
+  });
+}
+
 async function enviarMaterial(db: DB, canal: Canal, v: Vendedor, materialId: string, ahora: Date) {
   const m = (await materialesPara(db, v)).find((x) => x.id === materialId);
   if (!m) return responder(canal, v, { tipo: "texto", texto: "Ese material ya no está disponible. Escriba *comandos* para ver el menú." });
@@ -921,7 +1044,7 @@ async function enviarMaterial(db: DB, canal: Canal, v: Vendedor, materialId: str
   if (!m.texto?.trim() && !archivos.length) await responder(canal, v, { tipo: "texto", texto: `El material "${m.titulo}" todavía no tiene contenido.` });
   await db.from("material_venta").update({ usos: (m.usos ?? 0) + 1, ultimo_uso: ahora.toISOString() }).eq("id", m.id);
   await db.from("material_uso").insert({ material_id: m.id, usuario_id: v.id, creado_en: ahora.toISOString() });
-  return otraAccion(db, canal, v);
+  return otraAccion(db, canal, v, [{ id: "cmd:material", titulo: "Otro material" }]);
 }
 
 // ---------------------------------------------------------------- asignar desde WhatsApp
@@ -1301,7 +1424,5 @@ async function enviarEquipo(db: DB, canal: Canal, v: Vendedor, equipoId: string,
   for (const [i, f] of fotos.entries()) await responder(canal, v, { tipo: "imagen", url: f.url, ...(i === 0 ? { texto: pie } : {}) });
   await db.from("equipos_catalogo").update({ usos: (e.usos ?? 0) + 1, ultimo_uso: ahora.toISOString() }).eq("id", e.id);
   await responder(canal, v, { tipo: "texto", texto: "Puede reenviar las fotos al cliente manteniéndolas presionadas y eligiendo Reenviar." });
-  return otraAccion(db, canal, v, [
-    { id: `cat:${indiceCategoria(e.categoria)}`, titulo: "Otro equipo", descripcion: CATEGORIAS_EQUIPO[indiceCategoria(e.categoria)], seccion: "Catálogo" },
-  ]);
+  return otraAccion(db, canal, v, [{ id: `cat:${indiceCategoria(e.categoria)}`, titulo: "Otro equipo" }]);
 }
