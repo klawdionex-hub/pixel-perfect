@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { FileDown, Plus } from "lucide-react";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/components/AppLayout";
+import { FormulaElevadizos } from "@/components/FormulaElevadizos";
 import { descargarPdf, FormularioCotizacion } from "@/components/FormularioCotizacion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,6 +105,7 @@ function Pagina() {
           </p>
         ) : null}
         {nueva ? <FormularioCotizacion solicitudInicial={busquedaUrl.solicitud} alTerminar={() => abrirNueva(false)} /> : null}
+        <FormulaElevadizos />
 
         <div className="flex flex-wrap items-center gap-2">
           {[{ id: "todos", nombre: "Todos" }, ...vendedores].map((u) => (

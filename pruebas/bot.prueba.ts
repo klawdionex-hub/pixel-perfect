@@ -536,5 +536,40 @@ afirmar(log.slice(marca).some((l) => l.includes("[Contacto]") || l.includes("Dat
 await vendedor("v1", "Material", "cmd:material");
 afirmar(log.at(-1)!.includes("Elija el material"), "Otro material abre la lista de material");
 
+// --- Portón elevadizo con la fórmula
+const extraConf = config.textos_extra as Record<string, string>;
+delete extraConf["elev_dolar"];
+await vendedor("v2", "Hacer cotización", "cmd:cotizar");
+await vendedor("v2", "Cliente existente", "cot:existente");
+await vendedor("v2", "lucia");
+await vendedor("v2", "Lucía", `cot:con:${tablas["contactos"]!.find((c) => c.telefono === "+525592222222")!.id}`);
+await vendedor("v2", "Continuar", "cot:ok");
+afirmar(log.at(-1)!.includes("Portón elevadizo"), "la cotización ofrece Portón elevadizo");
+await vendedor("v2", "Portón elevadizo", "cot:elev");
+await vendedor("v2", "2.90");
+await vendedor("v2", "2.10");
+afirmar(log.at(-1)!.includes("Falta capturar el precio del dólar"), "sin precio del dólar avisa");
+config.textos_extra = { ...extraConf, elev_dolar: "18.5", elev_dolar_fecha: reloj.ahora.toISOString() };
+await vendedor("v2", "Portón elevadizo", "cot:elev");
+await vendedor("v2", "2,90");
+await vendedor("v2", "210 cm");
+afirmar(log.at(-1)!.includes("10 × 7 pies") && log.at(-1)!.includes("$31,211.42"), `2.90 × 2.10 m → 10 × 7 pies a $31,211.42 (${log.at(-1)!.slice(0, 160)})`);
+await vendedor("v2", "Medida mayor", "cot:emayor");
+afirmar(log.at(-1)!.includes("12 × 7 pies") && log.at(-1)!.includes("$37,597.92") && log.at(-1)!.includes("Medida menor"), "Medida mayor sube a 12 × 7");
+await vendedor("v2", "Usar este precio", "cot:usar");
+await vendedor("v2", "1", "cot:cant:1");
+afirmar(log.at(-1)!.includes("Portón elevadizo de paneles tipo americano 12 × 7 pies"), "agrega la partida del elevadizo");
+await vendedor("v2", "Portón elevadizo", "cot:elev");
+await vendedor("v2", "3.03");
+await vendedor("v2", "2.40");
+afirmar(log.at(-1)!.includes("12 × 8 pies") && log.at(-1)!.includes("muy justa"), "si la medida exacta queda muy justa toma la siguiente");
+await vendedor("v2", "Medida menor", "cot:emenor");
+afirmar(log.at(-1)!.includes("10 × 8 pies"), "Medida menor regresa a la exacta");
+await vendedor("v2", "Portón elevadizo", "cot:elev");
+await vendedor("v2", "7");
+await vendedor("v2", "2.2");
+afirmar(log.at(-1)!.includes("se cotiza a mano"), "más grande que la tabla: a mano");
+await vendedor("v2", "cancelar");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

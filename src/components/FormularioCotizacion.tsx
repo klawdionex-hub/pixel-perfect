@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import { CATEGORIA_SERVICIOS } from "@/lib/bot/equipos";
 import { costoDe, empresaDe, importe, pesos, revisarTelefono, totalDe, type Iva, type Partida } from "@/lib/cotizaciones/datos";
+import { calcularElevadizo, conceptoElevadizo, formulaDe, leerMetros, piesAMetros } from "@/lib/cotizaciones/elevadizos";
 import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { claves, traerConfiguracion, traerServicios, traerSolicitudes, traerUsuarios } from "@/lib/datos";
 
@@ -80,6 +81,19 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
   const [generando, setGenerando] = useState(false);
   const [resultado, setResultado] = useState<{ folio: string; url: string; aviso: string | null; bytes: Uint8Array } | null>(null);
   const [previa, setPrevia] = useState<{ url: string; bytes: Uint8Array } | null>(null);
+  const [elev, setElev] = useState<{ ancho: string; alto: string; salto: number } | null>(null);
+  const formula = formulaDe(config.data);
+  const anchoElev = elev ? leerMetros(elev.ancho) : null;
+  const altoElev = elev ? leerMetros(elev.alto) : null;
+  const calculo = elev && anchoElev && altoElev ? calcularElevadizo(formula, anchoElev, altoElev, elev.salto) : null;
+
+  function agregarElevadizo() {
+    if (!calculo?.ok) return;
+    const fila: Fila = { ...filaVacia(), concepto: conceptoElevadizo(calculo), cantidad: "1", precio: String(calculo.precio), costo: calculo.costo };
+    // Reemplaza la primera fila si está vacía.
+    setFilas((fs) => (fs.length === 1 && !fs[0]!.concepto.trim() ? [fila] : [...fs, fila]));
+    setElev(null);
+  }
   const nombreArchivo = (folio: string) => `${folio} ${cliente.nombre}`.replace(/[^\p{L}\p{N} -]/gu, "").trim();
 
   const equipos = equiposQ.data ?? [];
@@ -366,9 +380,58 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
             </div>
           );
         })}
-        <Button variant="outline" size="sm" onClick={() => setFilas((fs) => [...fs, filaVacia()])}>
-          <Plus className="mr-1 h-4 w-4" /> Agregar concepto
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => setFilas((fs) => [...fs, filaVacia()])}>
+            <Plus className="mr-1 h-4 w-4" /> Agregar concepto
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setElev(elev ? null : { ancho: "", alto: "", salto: 0 })}>
+            <Plus className="mr-1 h-4 w-4" /> Portón elevadizo por medidas
+          </Button>
+        </div>
+        {elev ? (
+          <div className="space-y-3 rounded-md border border-border bg-muted/40 p-4">
+            <div className="grid gap-3 md:grid-cols-[10rem_10rem_1fr] md:items-end">
+              <div>
+                <Label>Ancho de la portería (m)</Label>
+                <Input inputMode="decimal" value={elev.ancho} placeholder="2.90" onChange={(e) => setElev({ ...elev, ancho: e.target.value, salto: 0 })} />
+              </div>
+              <div>
+                <Label>Alto de la portería (m)</Label>
+                <Input inputMode="decimal" value={elev.alto} placeholder="2.10" onChange={(e) => setElev({ ...elev, alto: e.target.value, salto: 0 })} />
+              </div>
+              <div className="text-sm">
+                {!calculo ? (
+                  <span className="text-muted-foreground">Escriba las dos medidas en metros.</span>
+                ) : calculo.ok ? (
+                  <span>
+                    Portón <b>{calculo.anchoPies} × {calculo.altoPies} pies</b> ({piesAMetros(calculo.anchoPies).toFixed(2)} × {piesAMetros(calculo.altoPies).toFixed(2)} m) ·{" "}
+                    <b>{pesos(calculo.precio)}</b>
+                    {calculo.ajustado ? <span className="text-muted-foreground"> · se tomó la medida siguiente porque la exacta quedaba muy justa</span> : null}
+                  </span>
+                ) : (
+                  <span className="text-destructive">{calculo.error}</span>
+                )}
+              </div>
+            </div>
+            {calculo?.ok ? (
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" onClick={agregarElevadizo}>
+                  Agregar a la cotización
+                </Button>
+                {calculo.puedeMenor ? (
+                  <Button size="sm" variant="outline" onClick={() => setElev({ ...elev, salto: elev.salto - 1 })}>
+                    Medida menor
+                  </Button>
+                ) : null}
+                {calculo.puedeMayor ? (
+                  <Button size="sm" variant="outline" onClick={() => setElev({ ...elev, salto: elev.salto + 1 })}>
+                    Medida mayor
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* Opciones */}

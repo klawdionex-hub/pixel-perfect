@@ -4,6 +4,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { costoDe, empresaDe, leerPrecio, pesos, revisarTelefono, totalDe, type Iva, type Partida } from "@/lib/cotizaciones/datos";
+import { calcularElevadizo, conceptoElevadizo, diasDelDolar, formulaDe, leerMetros, piesAMetros } from "@/lib/cotizaciones/elevadizos";
 import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria } from "./equipos";
 import type { Canal } from "./motor.server";
@@ -17,7 +18,9 @@ type Pendiente = { equipo_id?: string | null; concepto: string; costo?: number |
 
 /** Borrador guardado en usuarios_perfil.estado_bot.cot mientras el vendedor contesta. */
 export type BorradorCot = {
-  paso: "cliente" | "buscar" | "nombre" | "telefono" | "municipio" | "concepto" | "precio" | "cantidad" | "menu";
+  paso: "cliente" | "buscar" | "nombre" | "telefono" | "municipio" | "concepto" | "precio" | "cantidad" | "elev_ancho" | "elev_alto" | "menu";
+  /** Portón elevadizo por medidas: medidas del cliente en metros y ajuste de ancho (Medida mayor/menor). */
+  elev?: { ancho?: number; alto?: number; salto: number } | null;
   /** Si el vendedor salió al menú (p. ej. llegó un prospecto), la cotización queda en pausa. */
   pausada?: boolean;
   /** Última pregunta del bot, para "Continuar cotización". */
@@ -267,6 +270,7 @@ async function preguntarEquipo(db: DB, canal: Canal, v: Vendedor, b: BorradorCot
     boton: "Elegir equipo",
     opciones: [
       ...usadas.map(({ c, i, n }): Opcion => ({ id: `cot:cat:${i}`, titulo: c, descripcion: `${n} equipo(s)` })),
+      { id: "cot:elev", titulo: "Portón elevadizo", descripcion: "Calcular el precio con las medidas" },
       { id: "cot:libre", titulo: "Concepto a mano", descripcion: "Algo que no está en el catálogo" },
     ],
   });
@@ -279,6 +283,7 @@ async function preguntarMas(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
   const opciones: Opcion[] = [
     { id: "cot:cats", titulo: "Equipo del catálogo" },
     { id: "cot:serv", titulo: "Servicios y extras", descripcion: "Instalación, controles, cableado…" },
+    { id: "cot:elev", titulo: "Portón elevadizo", descripcion: "Calcular el precio con las medidas" },
     { id: "cot:libre", titulo: "Concepto a mano", descripcion: "Por ejemplo, fabricación de portón" },
   ];
   if (b.partidas.length) opciones.push({ id: "cot:quitar", titulo: "Quitar un concepto" }, { id: "cot:fin", titulo: "Terminar", descripcion: "Revisar y generar el PDF" });
@@ -307,6 +312,51 @@ async function preguntarPrecio(db: DB, canal: Canal, v: Vendedor, b: BorradorCot
   b.paso = "precio";
   await guardar(db, v, b);
   return responder(canal, v, { tipo: "texto", texto: `${p.concepto}\nEscriba el *precio unitario*, por ejemplo *18000*.` });
+}
+
+/** Portón elevadizo: calcula medida estándar y precio con la fórmula y ofrece usarlo o ajustarlo. */
+async function mostrarElevadizo(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
+  const { data: config } = await db.from("configuracion").select("textos_extra").eq("id", true).maybeSingle();
+  const f = formulaDe((config ?? {}) as Record<string, unknown>);
+  const e = b.elev;
+  if (!e?.ancho || !e.alto) return preguntarMas(db, canal, v, b);
+  const r = calcularElevadizo(f, e.ancho, e.alto, e.salto);
+  if (!r.ok) {
+    b.paso = "menu";
+    await guardar(db, v, b);
+    return responder(canal, v, {
+      tipo: "botones",
+      texto: r.error,
+      opciones: [
+        { id: "cot:libre", titulo: "Concepto a mano" },
+        { id: "cot:mas", titulo: "Regresar" },
+      ],
+    });
+  }
+  const concepto = conceptoElevadizo(r);
+  b.pendiente = { equipo_id: null, concepto, sugerido: r.precio, costo: r.costo };
+  b.paso = "menu";
+  await guardar(db, v, b);
+  const dias = diasDelDolar(f);
+  const opciones: Opcion[] = [{ id: "cot:usar", titulo: "Usar este precio" }];
+  if (r.puedeMayor) opciones.push({ id: "cot:emayor", titulo: "Medida mayor", descripcion: "El siguiente ancho de panel" });
+  if (r.puedeMenor) opciones.push({ id: "cot:emenor", titulo: "Medida menor", descripcion: "Más justa a la medida del cliente" });
+  opciones.push({ id: "cot:otro", titulo: "Otro precio" });
+  return responder(canal, v, {
+    tipo: "lista",
+    texto: [
+      `Medida del cliente: ${e.ancho.toFixed(2)} × ${e.alto.toFixed(2)} m.`,
+      `Portón: *${r.anchoPies} × ${r.altoPies} pies* (${piesAMetros(r.anchoPies).toFixed(2)} × ${piesAMetros(r.altoPies).toFixed(2)} m), color blanco.`,
+      r.ajustado ? "Se tomó la medida siguiente porque la exacta quedaba muy justa." : "",
+      `Precio: *${pesos(r.precio)}*`,
+      `(USD ${r.usd.toLocaleString("en-US")} × ${f.incremento} × ${f.iva} × dólar a ${pesos(f.dolar ?? 0)})`,
+      dias != null && dias > 7 ? `\nAviso: el precio del dólar no se actualiza desde hace ${dias} días.` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    boton: "Ver opciones",
+    opciones,
+  });
 }
 
 /** Después del precio: cuántas unidades. */
@@ -632,6 +682,20 @@ async function atender(
       } else await fijarPrecio(db, canal, v, b, lp.precio);
       return true;
     }
+    if (b.paso === "elev_ancho" || b.paso === "elev_alto") {
+      const m = leerMetros(texto);
+      if (m == null) {
+        await responder(canal, v, { tipo: "texto", texto: 'Escriba la medida en metros, por ejemplo *2.90*. Para salir escriba "cancelar".' });
+        return true;
+      }
+      b.elev = { ...(b.elev ?? { salto: 0 }), salto: 0, ...(b.paso === "elev_ancho" ? { ancho: m } : { alto: m }) };
+      if (b.paso === "elev_ancho") {
+        b.paso = "elev_alto";
+        await guardar(db, v, b);
+        await responder(canal, v, { tipo: "texto", texto: "Escriba el *alto* de la portería en metros, por ejemplo *2.10*." });
+      } else await mostrarElevadizo(db, canal, v, b);
+      return true;
+    }
     if (b.paso === "cantidad" && b.pendiente) {
       const n = Number(texto.replace(/[^\d]/g, ""));
       if (!/^\s*\d{1,5}\s*(piezas?|unidades?|pzas?)?\s*$/i.test(texto) || !n) {
@@ -794,6 +858,18 @@ async function atender(
     b.paso = "precio";
     await guardar(db, v, b);
     await responder(canal, v, { tipo: "texto", texto: "Escriba el *precio unitario*, por ejemplo *8500*. Después le pregunto cuántas unidades." });
+    return true;
+  }
+  if (accion === "elev") {
+    b.elev = { salto: 0 };
+    b.paso = "elev_ancho";
+    await guardar(db, v, b);
+    await responder(canal, v, { tipo: "texto", texto: "*Portón elevadizo.* Escriba el *ancho* de la portería (el hueco donde va el portón) en metros, por ejemplo *2.90*." });
+    return true;
+  }
+  if ((accion === "emayor" || accion === "emenor") && b.elev) {
+    b.elev.salto += accion === "emayor" ? 1 : -1;
+    await mostrarElevadizo(db, canal, v, b);
     return true;
   }
   if (accion === "pok" && b.pendiente) {
