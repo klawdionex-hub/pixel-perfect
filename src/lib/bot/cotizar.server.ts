@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import { costoDe, empresaDe, leerPrecio, pesos, revisarTelefono, totalDe, type Iva, type Partida } from "@/lib/cotizaciones/datos";
 import { calcularElevadizo, conceptoElevadizo, diasDelDolar, formulaDe, leerMetros, piesAMetros } from "@/lib/cotizaciones/elevadizos";
+import { actualizarDolar } from "@/lib/cotizaciones/dolar.server";
 import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria } from "./equipos";
 import type { Canal } from "./motor.server";
@@ -316,7 +317,11 @@ async function preguntarPrecio(db: DB, canal: Canal, v: Vendedor, b: BorradorCot
 
 /** Portón elevadizo: calcula medida estándar y precio con la fórmula y ofrece usarlo o ajustarlo. */
 async function mostrarElevadizo(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
-  const { data: config } = await db.from("configuracion").select("textos_extra").eq("id", true).maybeSingle();
+  let { data: config } = await db.from("configuracion").select("textos_extra").eq("id", true).maybeSingle();
+  if (formulaDe((config ?? {}) as Record<string, unknown>).dolarModo === "auto" && canal.consultarDolar !== false) {
+    await actualizarDolar(db);
+    ({ data: config } = await db.from("configuracion").select("textos_extra").eq("id", true).maybeSingle());
+  }
   const f = formulaDe((config ?? {}) as Record<string, unknown>);
   const e = b.elev;
   if (!e?.ancho || !e.alto) return preguntarMas(db, canal, v, b);
@@ -350,7 +355,7 @@ async function mostrarElevadizo(db: DB, canal: Canal, v: Vendedor, b: BorradorCo
       r.ajustado ? "Se tomó la medida siguiente porque la exacta quedaba muy justa." : "",
       `Precio: *${pesos(r.precio)}*`,
       `(USD ${r.usd.toLocaleString("en-US")} × ${f.incremento} × ${f.iva} × dólar a ${pesos(f.dolar ?? 0)})`,
-      dias != null && dias > 7 ? `\nAviso: el precio del dólar no se actualiza desde hace ${dias} días.` : "",
+      f.dolarModo === "manual" && dias != null && dias > 7 ? `\nAviso: el precio fijo del dólar no se actualiza desde hace ${dias} días.` : "",
     ]
       .filter(Boolean)
       .join("\n"),

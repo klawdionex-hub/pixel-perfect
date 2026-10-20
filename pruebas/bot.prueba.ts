@@ -29,6 +29,7 @@ const canal: Canal = {
   cliente: async (_t, s: Salida) => { log.push("BOT> " + textoDeSalida(s).replace(/\n/g, " | ")); return null; },
   vendedor: async (t, n, s) => { log.push(`VENDEDOR ${n} (${t})> ` + textoDeSalida(s).replace(/\n/g, " | ")); },
   guardarArchivo: async (ruta, bytes) => { archivos[ruta] = bytes; return `https://archivos/${ruta}`; },
+  consultarDolar: false,
 };
 const cliente = async (tel: string, texto?: string, opcionId?: string) => {
   log.push(`CLIENTE ${tel}> ${texto ?? ""}${opcionId ? ` [${opcionId}]` : ""}`);
@@ -539,6 +540,7 @@ afirmar(log.at(-1)!.includes("Elija el material"), "Otro material abre la lista 
 // --- Portón elevadizo con la fórmula
 const extraConf = config.textos_extra as Record<string, string>;
 delete extraConf["elev_dolar"];
+extraConf["elev_dolar_modo"] = "manual";
 await vendedor("v2", "Hacer cotización", "cmd:cotizar");
 await vendedor("v2", "Cliente existente", "cot:existente");
 await vendedor("v2", "lucia");
@@ -548,8 +550,8 @@ afirmar(log.at(-1)!.includes("Portón elevadizo"), "la cotización ofrece Portó
 await vendedor("v2", "Portón elevadizo", "cot:elev");
 await vendedor("v2", "2.90");
 await vendedor("v2", "2.10");
-afirmar(log.at(-1)!.includes("Falta capturar el precio del dólar"), "sin precio del dólar avisa");
-config.textos_extra = { ...extraConf, elev_dolar: "18.5", elev_dolar_fecha: reloj.ahora.toISOString() };
+afirmar(log.at(-1)!.includes("Falta el precio fijo del dólar"), "dólar fijo sin capturar: avisa");
+config.textos_extra = { ...extraConf, elev_dolar_modo: "auto", elev_dolar_auto: "18.5", elev_dolar_auto_fecha: reloj.ahora.toISOString() };
 await vendedor("v2", "Portón elevadizo", "cot:elev");
 await vendedor("v2", "2,90");
 await vendedor("v2", "210 cm");

@@ -261,3 +261,12 @@ export const pasarContactoAVendedores = createServerFn({ method: "POST" })
     const { canalWhatsApp } = await import("@/lib/bot/canal.server");
     return motor.pasarContactoAVendedores(context.supabase, canalWhatsApp, data.contactoId);
   });
+
+/** Consulta el precio del dólar del día (fórmula de elevadizos) y lo guarda en la configuración. */
+export const dolarDelDia = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ forzar: z.boolean().optional() }).parse(d ?? {}))
+  .handler(async ({ data, context }) => {
+    const { actualizarDolar } = await import("@/lib/cotizaciones/dolar.server");
+    return { ok: await actualizarDolar(context.supabase, new Date(), !!data.forzar) };
+  });

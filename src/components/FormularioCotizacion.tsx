@@ -1,6 +1,7 @@
 // Formulario para hacer una cotización desde el panel. Genera el mismo PDF que el bot (pdf-lib en el navegador),
 // lo sube a Storage y lo guarda en la tabla cotizaciones.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { Lock, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -9,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
+import { dolarDelDia } from "@/lib/bot.functions";
 import type { Json } from "@/integrations/supabase/types";
 import { CATEGORIA_SERVICIOS } from "@/lib/bot/equipos";
 import { costoDe, empresaDe, importe, pesos, revisarTelefono, totalDe, type Iva, type Partida } from "@/lib/cotizaciones/datos";
@@ -82,6 +84,13 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
   const [resultado, setResultado] = useState<{ folio: string; url: string; aviso: string | null; bytes: Uint8Array } | null>(null);
   const [previa, setPrevia] = useState<{ url: string; bytes: Uint8Array } | null>(null);
   const [elev, setElev] = useState<{ ancho: string; alto: string; salto: number } | null>(null);
+  const consultarDolar = useServerFn(dolarDelDia);
+  // Al abrir el elevadizo se asegura tener el dólar del día.
+  useEffect(() => {
+    if (!elev) return;
+    void consultarDolar({ data: {} }).then(() => qc.invalidateQueries({ queryKey: claves.configuracion }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!elev]);
   const formula = formulaDe(config.data);
   const anchoElev = elev ? leerMetros(elev.ancho) : null;
   const altoElev = elev ? leerMetros(elev.alto) : null;

@@ -32,9 +32,12 @@ export const TABLA_POR_DEFECTO: PrecioElevadizo[] = [
 
 export type Formula = {
   tabla: PrecioElevadizo[];
-  /** Precio del dólar en pesos; null si no se ha capturado. */
+  /** Precio del dólar en pesos que se usa; null si no hay. */
   dolar: number | null;
   dolarFecha: string | null;
+  /** "auto": se consulta solo cada día; "manual": el que escribió el usuario en el panel. */
+  dolarModo: "auto" | "manual";
+  dolarFuente: string | null;
   incremento: number;
   iva: number;
   /** Si la medida estándar le queda al cliente con menos de esto (en metros), se toma la siguiente. */
@@ -55,11 +58,14 @@ export function formulaDe(config: Record<string, unknown> | null | undefined): F
   } catch {
     tabla = TABLA_POR_DEFECTO;
   }
-  const dolar = Number(extra["elev_dolar"]);
+  const manual = extra["elev_dolar_modo"] === "manual";
+  const dolar = Number(manual ? extra["elev_dolar"] : extra["elev_dolar_auto"]);
   return {
     tabla,
     dolar: Number.isFinite(dolar) && dolar > 0 ? dolar : null,
-    dolarFecha: extra["elev_dolar_fecha"] || null,
+    dolarFecha: (manual ? extra["elev_dolar_fecha"] : extra["elev_dolar_auto_fecha"]) || null,
+    dolarModo: manual ? "manual" : "auto",
+    dolarFuente: manual ? "Precio fijo del panel" : extra["elev_dolar_fuente"] || null,
     incremento: numero("elev_incremento", 1.2),
     iva: numero("elev_iva", 1.16),
     holgura: numero("elev_holgura_cm", 3) / 100,
@@ -103,7 +109,15 @@ export type ResultadoElevadizo =
  * respecto al elegido automáticamente, sin bajar nunca de la medida del cliente.
  */
 export function calcularElevadizo(f: Formula, anchoM: number, altoM: number, salto = 0): ResultadoElevadizo {
-  if (!f.dolar) return { ok: false, error: "Falta capturar el precio del dólar en el panel (Cotizaciones → Fórmula de elevadizos)." };
+  if (!f.dolar) {
+    return {
+      ok: false,
+      error:
+        f.dolarModo === "manual"
+          ? "Falta el precio fijo del dólar en el panel (Cotizaciones → Fórmula de elevadizos)."
+          : "No se pudo consultar el precio del dólar en este momento. Intente de nuevo en unos minutos, o fije un precio en el panel (Cotizaciones → Fórmula de elevadizos).",
+    };
+  }
   const iaExacta = indiceMedida(ANCHOS_PIES, anchoM, 0);
   const ihExacta = indiceMedida(ALTOS_PIES, altoM, 0);
   if (iaExacta < 0 || ihExacta < 0) {

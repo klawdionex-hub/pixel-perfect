@@ -21,6 +21,8 @@ export interface Canal {
   siempreVentana?: boolean;
   /** Guarda un archivo (p. ej. el PDF de una cotización) y devuelve su URL pública. */
   guardarArchivo?: (ruta: string, bytes: Uint8Array, tipo: string) => Promise<string>;
+  /** false para no consultar el precio del dólar en internet (pruebas). */
+  consultarDolar?: boolean;
 }
 
 export type Entrada = {
