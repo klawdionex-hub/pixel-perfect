@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { pasarContactoAVendedores } from "@/lib/bot.functions";
-import { claves, traerContactos, traerSolicitudes, type Contacto, type Solicitud } from "@/lib/datos";
+import { claves, traerContactos, traerSolicitudes, traerUsuarios, type Contacto, type Solicitud } from "@/lib/datos";
 import { enlaceWhatsApp, fechaHora, haceTiempo, telefonoBonito } from "@/lib/afpam";
 import { TextoWhatsApp } from "@/components/TextoWhatsApp";
 import { cabeza } from "@/lib/cabeza";
@@ -190,7 +190,11 @@ function FilaContacto({
   abierto: boolean;
   alternar: () => void;
 }) {
-  const ultima = suyas[0];
+  // Se muestra el prospecto abierto con vendedor (si hay); si no, el más reciente.
+  const ultima = suyas.find((s) => [1, 2, 3].includes(s.etapa) && s.vendedor_id) ?? suyas[0];
+  const abiertos = suyas.filter((s) => [1, 2, 3].includes(s.etapa)).length;
+  const usuarios = useQuery({ queryKey: claves.usuarios, queryFn: traerUsuarios });
+  const vendedor = ultima?.vendedor_id ? usuarios.data?.find((u) => u.id === ultima.vendedor_id)?.nombre ?? "Vendedor" : null;
   return (
     <div className="border-b border-border last:border-b-0">
       <button
@@ -211,9 +215,11 @@ function FilaContacto({
         <p className="hidden truncate text-sm text-muted-foreground md:block">{c.municipio ?? "Sin municipio"}</p>
         <div className="hidden md:block">
           {ultima ? (
-            <span className="flex items-center gap-2">
+            <span className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-sm font-semibold">{ultima.codigo}</span>
               <EtapaBadge etapa={ultima.etapa} />
+              <span className={cn("text-xs", vendedor ? "text-card-foreground" : "text-destructive")}>{vendedor ?? "Sin vendedor"}</span>
+              {abiertos > 1 ? <Marca texto={`${abiertos} abiertos`} tono="ambar" /> : null}
             </span>
           ) : sinTerminar ? (
             <Marca texto={`No terminó: se quedó en ${pasoLegible(estado)}`} tono="ambar" />
@@ -250,6 +256,7 @@ function Detalle({
   estado: EstadoConversacion | undefined;
 }) {
   const qc = useQueryClient();
+  const usuarios = useQuery({ queryKey: claves.usuarios, queryFn: traerUsuarios });
   const pasar = useServerFn(pasarContactoAVendedores);
   const [pasando, setPasando] = useState(false);
   const mensajes = useQuery({
@@ -344,6 +351,7 @@ function Detalle({
                   </Link>
                   <EtapaBadge etapa={s.etapa} />
                   {!s.completa ? <Marca texto="Incompleta" tono="ambar" /> : null}
+                  <span>{s.vendedor_id ? usuarios.data?.find((u) => u.id === s.vendedor_id)?.nombre ?? "Vendedor" : "Sin vendedor"}</span>
                   <span className="text-muted-foreground">{fechaHora(s.creada_en)}</span>
                 </li>
               ))

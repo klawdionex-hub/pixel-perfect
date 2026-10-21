@@ -944,8 +944,9 @@ async function enviarMisProspectos(db: DB, canal: Canal, v: Vendedor, para: "fic
     .eq("vendedor_id", v.id)
     .in("etapa", para === "ficha" ? [1] : [1, 2, 3])
     .order("creada_en", { ascending: false })
-    .limit(10);
-  const abiertas = (data ?? []) as SolicitudConContacto[];
+    .limit(60);
+  // Primero los que no tienen resultado; luego los cotizados y en negociación.
+  const abiertas = ordenarPorEtapa((data ?? []) as SolicitudConContacto[]);
   if (!abiertas.length) {
     return responder(canal, v, {
       tipo: "botones",
@@ -953,21 +954,36 @@ async function enviarMisProspectos(db: DB, canal: Canal, v: Vendedor, para: "fic
       opciones: [{ id: "cmd:pendientes", titulo: "Ver sin vendedor" }, { id: "cmd:menu", titulo: "Regresar al menú" }],
     });
   }
-  const opciones: Opcion[] = abiertas.slice(0, para === "seg" && abiertas.length > 1 ? 9 : 10).map(
-    (s): Opcion => {
-      const e = etiquetaProspecto(s);
-      return { id: `${para}:${s.id}`, titulo: e.titulo, descripcion: e.descripcion };
-    },
-  );
+  const cupo = para === "seg" && abiertas.length > 1 ? 9 : 10;
+  const opciones: Opcion[] = abiertas.slice(0, cupo).map((s): Opcion => {
+    const e = etiquetaProspecto(s);
+    return {
+      id: `${para}:${s.id}`,
+      titulo: e.titulo,
+      descripcion: s.etapa === 1 ? e.descripcion : `${ETAPA_ABIERTA[s.etapa]} · ${e.descripcion}`.slice(0, 72),
+      seccion: s.etapa === 1 ? "Sin resultado" : "Cotizados y negociando",
+    };
+  });
   if (para === "seg" && abiertas.length > 1) {
-    opciones.unshift({ id: "varios:", titulo: "Varios a la vez", descripcion: "El mismo resultado para varios prospectos" });
+    opciones.unshift({ id: "varios:", titulo: "Varios a la vez", descripcion: "Ver todos y registrar varios", seccion: "Sin resultado" });
   }
+  const sinResultado = abiertas.filter((s) => s.etapa === 1).length;
+  const resumen =
+    para === "seg" ? `\n\nSin resultado: ${sinResultado} · Cotizados o negociando: ${abiertas.length - sinResultado}.` : "";
+  const faltan = abiertas.length > cupo ? `\nSe muestran ${cupo} de ${abiertas.length}; con *Varios a la vez* ve la lista completa.` : "";
   return responder(canal, v, {
     tipo: "lista",
-    texto: para === "ficha" ? "Elija el prospecto para ver su ficha." : "¿De qué prospecto desea registrar el resultado?",
+    texto: (para === "ficha" ? "Elija el prospecto para ver su ficha." : "¿De qué prospecto desea registrar el resultado?") + resumen + faltan,
     boton: "Ver prospectos",
     opciones,
   });
+}
+
+const ETAPA_ABIERTA: Record<number, string> = { 1: "Sin resultado", 2: "Cotizado", 3: "Negociando" };
+
+/** Ordena: sin resultado primero, luego cotizados y negociando; dentro de cada grupo, los más recientes primero. */
+function ordenarPorEtapa<T extends { etapa: number; creada_en: string }>(lista: T[]): T[] {
+  return [...lista].sort((a, b) => (a.etapa === 1 ? 0 : 1) - (b.etapa === 1 ? 0 : 1) || b.creada_en.localeCompare(a.creada_en));
 }
 
 /** Varios a la vez: muestra los prospectos numerados para que escriba cuáles. */
@@ -978,11 +994,16 @@ async function pedirVarios(db: DB, canal: Canal, v: Vendedor, ahora: Date) {
     .eq("vendedor_id", v.id)
     .in("etapa", [1, 2, 3])
     .order("creada_en", { ascending: false })
-    .limit(30);
-  const abiertas = (data ?? []) as SolicitudConContacto[];
+    .limit(40);
+  const abiertas = ordenarPorEtapa((data ?? []) as SolicitudConContacto[]);
   if (!abiertas.length) return enviarMisProspectos(db, canal, v, "seg");
   await guardarEstadoVendedor(db, v, { ...((v.estado_bot ?? {}) as EstadoVendedor), esperando: "varios", numerados: abiertas.map((s) => s.id), seleccion: [], desde: ahora.toISOString() });
-  const lineas = abiertas.map((s, i) => `${i + 1}) ${etiquetaProspecto(s).linea}`);
+  const lineas: string[] = [];
+  abiertas.forEach((s, i) => {
+    const grupo = s.etapa === 1 ? "*Sin resultado*" : "*Cotizados y negociando*";
+    if (i === 0 || (abiertas[i - 1]!.etapa === 1) !== (s.etapa === 1)) lineas.push(`${i ? "\n" : ""}${grupo}`);
+    lineas.push(`${i + 1}) ${etiquetaProspecto(s).linea}${s.etapa !== 1 ? ` · ${ETAPA_ABIERTA[s.etapa]}` : ""}`);
+  });
   return responder(canal, v, {
     tipo: "texto",
     texto: `*Varios a la vez.* Estos son sus prospectos abiertos:\n\n${lineas.join("\n")}\n\nEscriba los números de los que quiere registrar, separados por coma. Por ejemplo: *1, 3, 4*\nPara salir escriba "cancelar".`,
