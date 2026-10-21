@@ -601,5 +601,17 @@ marca = log.length;
 await vendedor("v1", "Lo tomo", `tomar:${tablas["solicitudes"]!.find((x) => !x.vendedor_id && x.etapa === 1)?.id ?? px!.id}`);
 afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Carlos") && l.includes("Ver mis prospectos") && l.includes("Menú")), "después de Lo tomo llega el botón de Menú");
 
+// --- Prospecto sin tomar: ficha resumida sin fotos; las fotos llegan una sola vez al tomarlo
+const sinTomarConFoto = { id: "st1", contacto_id: tablas["contactos"]![0]!.id, etapa: 1, vendedor_id: null, tomada_en: null, servicio_codigo: 3, codigo: "3-1-0999", numero: 999, datos: { medidas: "3 x 2.4 m" }, completa: true, urgente: false, fuera_de_zona: false, fuera_de_horario: false, notas: null, control_bot: {}, es_ejemplo: false, creada_en: reloj.ahora.toISOString() };
+tablas["solicitudes"]!.push(sinTomarConFoto);
+tablas["archivos"]!.push({ id: "f1", solicitud_id: sinTomarConFoto.id, url: "https://x/porton.jpg", tipo: "image" });
+marca = log.length;
+await vendedor("v2", "Ver detalles", `ver:${sinTomarConFoto.id}`);
+const vistos = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana"));
+afirmar(vistos.length === 1 && vistos[0]!.includes("Lo tomo") && vistos[0]!.includes("Fotos del cliente: 1") && !vistos.some((l) => l.includes("[Imagen]")), "sin tomar: un solo mensaje resumido, sin fotos");
+marca = log.length;
+await vendedor("v2", "Lo tomo", `tomar:${sinTomarConFoto.id}`);
+afirmar(log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana") && l.includes("[Imagen]")).length === 1, "al tomarlo llegan las fotos una sola vez");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

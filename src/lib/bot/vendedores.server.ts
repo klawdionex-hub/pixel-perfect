@@ -462,17 +462,34 @@ function lineasDelTrabajo(s: SolicitudConContacto) {
 }
 
 /** Detalles para decidir si tomarlo: sin nombre, teléfono ni enlace al chat. */
-async function detallesDelTrabajo(db: DB, s: SolicitudConContacto): Promise<Salida[]> {
-  const texto = [
-    `Detalles del prospecto ${folio(s)}`,
+/**
+ * Ficha resumida de un prospecto SIN TOMAR, en un solo mensaje con el botón Lo tomo.
+ * Sin datos de contacto ni fotos: esos llegan una sola vez, al tomarlo.
+ */
+async function fichaResumida(db: DB, s: SolicitudConContacto): Promise<Salida> {
+  const datos = (s.datos ?? {}) as Record<string, unknown>;
+  const clave = (k: string) => (typeof datos[k] === "string" && (datos[k] as string).trim() ? `${ETIQUETAS_DATOS[k] ?? k}: ${String(datos[k]).slice(0, 60)}` : null);
+  const { data: archivos } = await db.from("archivos").select("id").eq("solicitud_id", s.id);
+  const fotos = archivos?.length ?? 0;
+  const lineas = [
+    `*Prospecto ${folio(s)}*`,
     `Servicio: ${await nombreServicio(db, s)}`,
     `Zona: ${zonaDe(s)}`,
-    ...lineasDelTrabajo(s),
+    ...["medidas", "tiene_porton", "equipo_compra", "falla", "horario_preferido"].map(clave).filter((x): x is string => !!x),
     `Observaciones: ${marcas(s)}`,
+    fotos ? `Fotos del cliente: ${fotos} (se envían al tomarlo)` : null,
     "",
     "Los datos de contacto se envían a quien lo tome.",
-  ].join("\n");
-  return [{ tipo: "texto", texto }, ...(await archivosDe(db, s.id))];
+  ].filter((x): x is string => x !== null);
+  return {
+    tipo: "botones",
+    texto: lineas.join("\n"),
+    opciones: [
+      { id: `tomar:${s.id}`, titulo: "Lo tomo" },
+      { id: "cmd:pendientes", titulo: "Ver otro sin tomar" },
+      { id: "cmd:menu", titulo: "Menú" },
+    ],
+  };
 }
 
 async function datosCompletos(db: DB, s: SolicitudConContacto): Promise<Salida[]> {
@@ -746,9 +763,7 @@ export async function procesarMensajeVendedor(
       const { data: otro } = await db.from("usuarios_perfil").select("nombre").eq("id", s.vendedor_id).maybeSingle();
       return responder(canal, v, { tipo: "texto", texto: `Este prospecto ya fue tomado por ${otro?.nombre ?? "otro vendedor"}.` });
     }
-    for (const salida of await detallesDelTrabajo(db, s)) await responder(canal, v, salida);
-    await responder(canal, v, { tipo: "botones", texto: `¿Desea tomar el prospecto ${folio(s)}?`, opciones: [{ id: `tomar:${s.id}`, titulo: "Lo tomo" }] });
-    return;
+    return responder(canal, v, await fichaResumida(db, s));
   }
   if (accion === "seg" && a) {
     if (await asignadoAOtro(db, canal, v, a)) return;
@@ -1058,8 +1073,7 @@ async function enviarFicha(db: DB, canal: Canal, v: Vendedor, solicitudId: strin
   const s = await cargarSolicitud(db, solicitudId);
   if (!s) return responder(canal, v, { tipo: "texto", texto: "No encontré ese prospecto." });
   if (!s.vendedor_id) {
-    for (const salida of await detallesDelTrabajo(db, s)) await responder(canal, v, salida);
-    return responder(canal, v, { tipo: "botones", texto: `¿Desea tomar el prospecto ${folio(s)}?`, opciones: [{ id: `tomar:${s.id}`, titulo: "Lo tomo" }] });
+    return responder(canal, v, await fichaResumida(db, s));
   }
   await entregarDatos(db, canal, v, s);
   return otraAccion(db, canal, v, [
