@@ -420,6 +420,12 @@ afirmar(nuevoContacto?.nombre === "Roberto Gómez" && nuevoContacto.municipio ==
 afirmar(tablas["solicitudes"]!.length === solicitudesAntes + 1 && nuevaSol.contacto_id === nuevoContacto?.id && nuevaSol.vendedor_id === "v2" && nuevaSol.etapa === 2 && nuevaSol.servicio_codigo === 4, `se registra el prospecto ${nuevaSol.codigo} a nombre del vendedor`);
 afirmar(log.slice(marca).some((l) => l.includes("Se registró el prospecto")), "avisa del prospecto nuevo");
 afirmar((tablas["cotizaciones"] ?? []).at(-1)!.solicitud_id === nuevaSol.id, "la cotización queda ligada al prospecto nuevo");
+// El cliente cotizado escribe al bot: su mensaje va a su vendedor y no se crea otro prospecto
+const antesDeEscribir = tablas["solicitudes"]!.length;
+marca = log.length;
+await cliente("+525544443333", "Hola, ¿ya tienen mi cotización?");
+afirmar(tablas["solicitudes"]!.length === antesDeEscribir, "el cliente cotizado que escribe no genera un prospecto duplicado");
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Ana") && l.includes("ya tienen mi cotización")) && !log.slice(marca).some((l) => l.includes("indicarme su *nombre*")), "su mensaje le llega al vendedor que cotizó, sin encuesta");
 
 // --- Cliente existente: búsqueda por teléfono y corrección del nombre
 const existente = tablas["contactos"]!.find((c) => c.telefono === "+525511111111")!;

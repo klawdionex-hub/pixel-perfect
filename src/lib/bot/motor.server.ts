@@ -860,6 +860,14 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
 
   const paso = ses.estado.paso_actual as Paso | null;
   if (!paso) {
+    // Si ya tiene un prospecto abierto con vendedor (p. ej. lo registró el vendedor al cotizar), el mensaje va
+    // a su asesor en lugar de empezar otra encuesta: así no se duplica el prospecto.
+    const conVendedor = await solicitudAbierta(ses);
+    if (conVendedor?.vendedor_id) {
+      ses.estado.en_manos_de_vendedor = true;
+      ses.estado.solicitud_id = conVendedor.id;
+      if (await atenderEnManosDeVendedor(ses, e, actividadPrevia)) return;
+    }
     // Inicio de conversación.
     ses.estado.datos = {};
     ses.estado.flujo_actual = ses.contacto.nombre ? "regreso" : "nuevo";

@@ -472,6 +472,10 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
       if (sol) {
         b.solicitud_id = sol.id;
         aviso = `\nSe registró el prospecto *${sol.codigo}* a su nombre.`;
+        // Si el cliente escribe al bot, su mensaje le llega a este vendedor (sin volver a hacer la encuesta).
+        await db
+          .from("estado_conversacion")
+          .upsert({ contacto_id: contactoId, en_manos_de_vendedor: true, solicitud_id: sol.id, paso_actual: null, flujo_actual: null, ultima_actividad: ahora.toISOString() }, { onConflict: "contacto_id" });
       }
     } else {
       aviso = "\nComo no hay teléfono, la cotización no quedó ligada a un prospecto.";
