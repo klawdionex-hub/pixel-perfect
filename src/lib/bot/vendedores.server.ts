@@ -527,7 +527,7 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
     if (s.vendedor_id === v.id) {
       await responder(canal, v, { tipo: "texto", texto: `El prospecto ${folio(s)} está asignado a usted. Le envío los datos del cliente.` });
       await entregarDatos(db, canal, v, s);
-      return;
+      return otraAccion(db, canal, v, [{ id: "cmd:mis", titulo: "Ver mis prospectos" }]);
     }
     const { data: otro } = await db.from("usuarios_perfil").select("nombre").eq("id", s.vendedor_id ?? "").maybeSingle();
     await responder(canal, v, { tipo: "texto", texto: `Este prospecto ya fue tomado por ${otro?.nombre ?? "otro vendedor"}.` });
@@ -553,6 +553,7 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
       { nombre: PLANTILLAS_VENDEDORES.asignado, parametros: [folio(s), servicio, zona, v.nombre] },
     );
   }
+  await otraAccion(db, canal, v, [{ id: "cmd:mis", titulo: "Ver mis prospectos" }]);
 }
 
 /**
@@ -577,6 +578,7 @@ async function registrarResultado(db: DB, canal: Canal, v: Vendedor, clave: stri
     await responder(canal, v, { tipo: "texto", texto: "No encontré ese prospecto." });
     return;
   }
+  if (await yaCerrado(canal, v, s)) return enviarMisProspectos(db, canal, v, "seg");
   const control = { ...((s.control_bot ?? {}) as ControlBot), ultimo_seguimiento: ahora.toISOString() };
   const asignar = s.vendedor_id ? {} : { vendedor_id: v.id, tomada_en: ahora.toISOString() };
 
@@ -589,18 +591,23 @@ async function registrarResultado(db: DB, canal: Canal, v: Vendedor, clave: stri
     await db.from("solicitudes").update({ control_bot: control as unknown as Json, ...asignar }).eq("id", s.id);
     return cerrarNoLeIntereso(db, canal, v, s.id);
   }
+  // Vendido y Perdido se guardan de inmediato; el monto y el motivo se piden después (si no contesta, ya quedó registrado).
   if (r.etapa === 4) {
-    await db.from("solicitudes").update({ control_bot: control as unknown as Json, ...asignar }).eq("id", s.id);
+    const { data: n } = await db.from("solicitudes").update({ etapa: 4, control_bot: control as unknown as Json, ...asignar }).eq("id", s.id).select("codigo").single();
     await guardarEstadoVendedor(db, v, { esperando: "monto", solicitud_id: s.id, desde: ahora.toISOString() });
-    await responder(canal, v, { tipo: "texto", texto: `Felicidades. Indique el monto final de la venta de ${folio(s)} en pesos, por ejemplo: 12500` });
+    await responder(canal, v, {
+      tipo: "botones",
+      texto: `Felicidades. Registrado como vendido: ${n?.codigo ?? s.codigo}.\nIndique el monto final de la venta en pesos, por ejemplo: *12500*`,
+      opciones: [{ id: `montodespues:${s.id}`, titulo: "Lo pongo después" }],
+    });
     return;
   }
   if (r.etapa === 0) {
-    await db.from("solicitudes").update({ control_bot: control as unknown as Json, ...asignar }).eq("id", s.id);
+    const { data: n } = await db.from("solicitudes").update({ etapa: 0, control_bot: control as unknown as Json, ...asignar }).eq("id", s.id).select("codigo").single();
     await guardarEstadoVendedor(db, v, { esperando: "motivo", solicitud_id: s.id, desde: ahora.toISOString() });
     await responder(canal, v, {
       tipo: "botones",
-      texto: `Indique brevemente el motivo por el que se perdió ${folio(s)}, o seleccione Omitir.`,
+      texto: `Registrado como perdido: ${n?.codigo ?? s.codigo}.\nSi quiere, indique brevemente el motivo, o seleccione Omitir.`,
       opciones: [{ id: `omitir:${s.id}`, titulo: "Omitir" }],
     });
     return;
@@ -655,7 +662,7 @@ async function cerrarVenta(db: DB, canal: Canal, v: Vendedor, solicitudId: strin
   return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
 }
 
-async function cerrarPerdido(db: DB, canal: Canal, v: Vendedor, solicitudId: string, motivo: string | null, ahora: Date) {
+async function cerrarPerdido(db: DB, canal: Canal, v: Vendedor, solicitudId: string, motivo: string | null, ahora: Date, yaRegistrado = false) {
   const { data: previa } = await db.from("solicitudes").select("notas, vendedor_id").eq("id", solicitudId).maybeSingle();
   const notas = motivo ? [previa?.notas, `Motivo de pérdida: ${motivo}`].filter(Boolean).join("\n") : previa?.notas ?? null;
   const asignar = previa?.vendedor_id ? {} : { vendedor_id: v.id, tomada_en: ahora.toISOString() };
@@ -666,8 +673,23 @@ async function cerrarPerdido(db: DB, canal: Canal, v: Vendedor, solicitudId: str
     .select("codigo")
     .single();
   await guardarEstadoVendedor(db, v, {});
-  await responder(canal, v, { tipo: "texto", texto: `Registrado: ${s?.codigo ?? ""} – Perdido.` });
+  if (!yaRegistrado) await responder(canal, v, { tipo: "texto", texto: `Registrado: ${s?.codigo ?? ""} – Perdido.` });
+  else if (motivo) await responder(canal, v, { tipo: "texto", texto: `Motivo guardado en ${s?.codigo ?? ""}.` });
   return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
+}
+
+/**
+ * Si el prospecto ya tiene resultado final (vendido, perdido o archivado), lo avisa y devuelve true.
+ * Pasa cuando el vendedor toca un prospecto en una lista vieja del chat: WhatsApp no actualiza esos mensajes.
+ */
+async function yaCerrado(canal: Canal, v: Vendedor, s: Solicitud) {
+  if ([1, 2, 3].includes(s.etapa)) return false;
+  const estado = s.etapa === 4 ? "vendido" : s.etapa === 5 ? "archivado" : "perdido o no le interesó";
+  await responder(canal, v, {
+    tipo: "texto",
+    texto: `El prospecto ${s.codigo} ya tiene resultado final (${estado}). Esa lista era de antes; aquí van sus prospectos actualizados.`,
+  });
+  return true;
 }
 
 /** Procesa un mensaje de un usuario del panel (vendedor o dueño). */
@@ -694,6 +716,15 @@ export async function procesarMensajeVendedor(
   if (id === "cmd:ventas") return enviarMisVentas(db, canal, v, ahora);
   if (accion === "mat" && a) return enviarMaterial(db, canal, v, a, ahora);
   if (id === "cmd:material") return enviarListaMaterial(db, canal, v);
+  if (accion === "montodespues" && a) {
+    await guardarEstadoVendedor(db, v, {});
+    const { data: s } = await db.from("solicitudes").select("numero").eq("id", a).maybeSingle();
+    await responder(canal, v, {
+      tipo: "texto",
+      texto: `De acuerdo, la venta ya quedó registrada. Cuando tenga el monto escriba, por ejemplo: *${String(s?.numero ?? "").padStart(4, "0")} vendido 12500*`,
+    });
+    return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
+  }
   if (id === "varios:") return pedirVarios(db, canal, v, ahora);
   if (accion === "resv" && a) return registrarVarios(db, canal, v, a, ahora);
   if (id === "cmd:catalogo") return enviarCategorias(db, canal, v);
@@ -722,6 +753,7 @@ export async function procesarMensajeVendedor(
   if (accion === "seg" && a) {
     if (await asignadoAOtro(db, canal, v, a)) return;
     const s = await cargarSolicitud(db, a);
+    if (s && (await yaCerrado(canal, v, s))) return enviarMisProspectos(db, canal, v, "seg");
     if (s) await responder(canal, v, preguntaSeguimiento(s));
     return;
   }
@@ -731,7 +763,7 @@ export async function procesarMensajeVendedor(
   }
   if (accion === "omitir" && a) {
     if (await asignadoAOtro(db, canal, v, a)) return;
-    return cerrarPerdido(db, canal, v, a, null, ahora);
+    return cerrarPerdido(db, canal, v, a, null, ahora, true);
   }
 
   // Botones de plantilla sin payload: llegan solo con el texto del botón.
@@ -793,7 +825,7 @@ export async function procesarMensajeVendedor(
       return cerrarVenta(db, canal, v, estado.solicitud_id!, monto, ahora);
     }
     if (estado.esperando === "motivo") {
-      return cerrarPerdido(db, canal, v, estado.solicitud_id!, /^omitir$/i.test(texto) ? null : texto.slice(0, 300), ahora);
+      return cerrarPerdido(db, canal, v, estado.solicitud_id!, /^omitir$/i.test(texto) ? null : texto.slice(0, 300), ahora, true);
     }
   }
 

@@ -574,5 +574,26 @@ await vendedor("v2", "2.2");
 afirmar(log.at(-1)!.includes("se cotiza a mano"), "más grande que la tabla: a mano");
 await vendedor("v2", "cancelar");
 
+// --- Vendido y Perdido se registran aunque no contesten monto o motivo; listas viejas
+const tresMas = tablas["solicitudes"]!.filter((x) => !x.vendedor_id && x.etapa === 1).slice(0, 3);
+for (const x of tresMas) x.vendedor_id = "v1";
+const [pv, pp, px] = tresMas;
+await vendedor("v1", "Vendido", `res:4:${pv!.id}`);
+afirmar(pv!.etapa === 4 && log.at(-1)!.includes("Lo pongo después"), "Vendido se registra de inmediato y pide el monto");
+await vendedor("v1", "Lo pongo después", `montodespues:${pv!.id}`);
+afirmar(pv!.etapa === 4 && log.slice(-2)[0]!.includes("ya quedó registrada"), "Lo pongo después deja la venta registrada");
+await vendedor("v1", "Perdido", `res:0:${pp!.id}`);
+afirmar(pp!.etapa === 0, "Perdido se registra de inmediato");
+await vendedor("v1", "el cliente compró en otro lado");
+afirmar(String(pp!.notas).includes("compró en otro lado") && log.slice(-2)[0]!.includes("Motivo guardado"), "el motivo se agrega después");
+marca = log.length;
+await vendedor("v1", "Cotizado", `res:2:${pv!.id}`);
+afirmar(pv!.etapa === 4 && log.slice(marca).some((l) => l.includes("ya tiene resultado final")), "una lista vieja no reabre un prospecto vendido");
+await vendedor("v1", "x", `seg:${pp!.id}`);
+afirmar(log.slice(-2).some((l) => l.includes("ya tiene resultado final")) || log.at(-1)!.includes("Registrar resultado") || log.at(-1)!.includes("prospecto"), "elegir un prospecto cerrado en una lista vieja avisa");
+marca = log.length;
+await vendedor("v1", "Lo tomo", `tomar:${tablas["solicitudes"]!.find((x) => !x.vendedor_id && x.etapa === 1)?.id ?? px!.id}`);
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Carlos") && l.includes("Ver mis prospectos") && l.includes("Menú")), "después de Lo tomo llega el botón de Menú");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;
