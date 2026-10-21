@@ -10,7 +10,7 @@ import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria } from "./equipos";
 import type { Canal } from "./motor.server";
 import { normalizarTelefono, type Opcion, type Salida } from "./salida";
-import { folio, otraAccion, responder, type Vendedor } from "./vendedores.server";
+import { etiquetaProspecto, otraAccion, responder, type Vendedor } from "./vendedores.server";
 
 type DB = SupabaseClient<Database>;
 type Equipo = Database["public"]["Tables"]["equipos_catalogo"]["Row"];
@@ -102,7 +102,7 @@ export async function iniciarCotizacion(db: DB, canal: Canal, v: Vendedor, ahora
 async function listarMisProspectos(db: DB, canal: Canal, v: Vendedor) {
   const { data } = await db
     .from("solicitudes")
-    .select("id, codigo, creada_en, contactos(nombre, municipio)")
+    .select("id, codigo, numero, creada_en, contactos(nombre, telefono, municipio)")
     .eq("vendedor_id", v.id)
     .in("etapa", [1, 2, 3])
     .order("creada_en", { ascending: false })
@@ -122,8 +122,8 @@ async function listarMisProspectos(db: DB, canal: Canal, v: Vendedor) {
     texto: "Elija el prospecto.",
     boton: "Ver prospectos",
     opciones: data.map((s): Opcion => {
-      const c = s.contactos as { nombre: string | null; municipio: string | null } | null;
-      return { id: `cot:sol:${s.id}`, titulo: folio(s), descripcion: `${c?.nombre ?? "Sin nombre"} · ${c?.municipio ?? ""}`.trim() };
+      const e = etiquetaProspecto(s as Parameters<typeof etiquetaProspecto>[0]);
+      return { id: `cot:sol:${s.id}`, titulo: e.titulo, descripcion: e.descripcion };
     }),
   });
 }

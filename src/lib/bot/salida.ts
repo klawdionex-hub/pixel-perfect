@@ -42,7 +42,7 @@ export function textoDeSalida(s: Salida): string {
     case "lista":
     case "botones":
       return `${s.texto}\n${normalizarOpciones(s.opciones)
-        .map((o, i) => `${i + 1}) ${o.titulo}`)
+        .map((o, i) => `${i + 1}) ${o.titulo}${s.tipo === "lista" && o.descripcion ? ` — ${o.descripcion}` : ""}`)
         .join("\n")}`;
     case "plantilla":
       return `[Plantilla ${s.nombre}] ${(s.parametros ?? []).join(" | ")}`;

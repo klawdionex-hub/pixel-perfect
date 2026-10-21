@@ -251,7 +251,7 @@ if (!deAna) {
 const suya = tablas["solicitudes"]!.find((x) => x.vendedor_id === "v2" && [1, 2, 3].includes(x.etapa))!;
 marca = log.length;
 await vendedor("v2", "Ver mis prospectos", "cmd:mis");
-afirmar(log.slice(marca).some((l) => l.includes(suya.codigo)), "Ver mis prospectos lista los suyos");
+afirmar(log.slice(marca).some((l) => l.includes(`Núm. ${String(suya.numero).padStart(4, "0")}`)), "Ver mis prospectos lista los suyos");
 marca = log.length;
 await vendedor("v2", suya.codigo, `ficha:${suya.id}`);
 afirmar(log.at(-1)!.includes("Resultado de este") && log.at(-1)!.includes("Ver otro prospecto") && log.at(-1)!.includes("Menú"), "la ficha termina con Resultado de este / Ver otro prospecto / Menú");
@@ -314,7 +314,7 @@ afirmar(log.slice(marca).some((l) => l.includes("Hacer cotización")), "el menú
 await vendedor("v2", "Hacer cotización", "cmd:cotizar");
 afirmar(log.at(-1)!.includes("Nueva cotización") && log.at(-1)!.includes("Mis prospectos") && log.at(-1)!.includes("Cliente existente") && log.at(-1)!.includes("Cliente nuevo"), "la cotización pregunta el tipo de cliente");
 await vendedor("v2", "Mis prospectos", "cot:mis");
-afirmar(log.at(-1)!.includes(suyaCot.codigo), "Mis prospectos lista los del vendedor");
+afirmar(log.at(-1)!.includes(`Núm. ${String(suyaCot.numero).padStart(4, "0")}`), "Mis prospectos lista los del vendedor");
 await vendedor("v2", suyaCot.codigo, `cot:sol:${suyaCot.id}`);
 afirmar(log.at(-1)!.includes("Datos del cliente") && log.at(-1)!.includes("Corregir datos"), "muestra los datos del cliente antes de cotizar");
 await vendedor("v2", "Continuar", "cot:ok");
@@ -371,10 +371,10 @@ afirmar(log.at(-1)!.includes("¿Desea hacer alguna otra acción?") && log.at(-1)
 marca = log.length;
 await vendedor("v2", "Ver mis prospectos", "cmd:mis");
 const listaMis = log.slice(marca).join(" ");
-afirmar(!listaMis.includes(pA!.codigo) && listaMis.includes(pB!.codigo), "Ver mis prospectos ya no muestra los que tienen resultado");
+afirmar(!listaMis.includes(`Núm. ${String(pA!.numero).padStart(4, "0")}`) && listaMis.includes(`Núm. ${String(pB!.numero).padStart(4, "0")}`), "Ver mis prospectos ya no muestra los que tienen resultado");
 marca = log.length;
 await vendedor("v2", "Registrar resultado", "cmd:resultado");
-afirmar(log.slice(marca).join(" ").includes(pA!.codigo), "Registrar resultado sigue mostrando los cotizados");
+afirmar(log.slice(marca).join(" ").includes(`Núm. ${String(pA!.numero).padStart(4, "0")}`), "Registrar resultado sigue mostrando los cotizados");
 await vendedor("v2", pB!.codigo, `seg:${pB!.id}`);
 afirmar(log.at(-1)!.includes("No le interesó"), "el resultado No le interesó aparece en la lista");
 marca = log.length;
@@ -494,6 +494,7 @@ await vendedor("v2", "Concepto a mano", "cot:libre");
 const preguntaPendiente = log.at(-1)!;
 await vendedor("v2", "Ver detalles", `ver:${tablas["solicitudes"]!.find((x) => !x.vendedor_id)?.id ?? "x"}`);
 await vendedor("v2", "comandos");
+if (process.env["DEPURAR"]) console.log(log.slice(-6).join("\n"));
 afirmar(log.at(-1)!.includes("Continuar cotización"), "el menú ofrece continuar la cotización a medias");
 marca = log.length;
 await vendedor("v2", "hola");

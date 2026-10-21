@@ -169,6 +169,32 @@ function numeroWhatsApp(tel: string) {
   return d.length === 10 ? "52" + d : d;
 }
 
+/**
+ * Cómo se ve un prospecto PROPIO en las listas del vendedor: el teléfono del cliente primero (así lo reconoce
+ * en su WhatsApp) y en la descripción el nombre, el municipio, el número del prospecto y la fecha.
+ * No usar en prospectos sin asignar: el teléfono solo se entrega a quien lo toma.
+ */
+export function etiquetaProspecto(s: {
+  codigo: string | null;
+  numero?: number | null;
+  creada_en?: string | null;
+  contactos?: { nombre?: string | null; telefono?: string | null; municipio?: string | null } | null;
+}) {
+  const tel = s.contactos?.telefono && !s.contactos.telefono.startsWith("sim-") ? s.contactos.telefono.replace(/\D/g, "").slice(-10) : "";
+  const telefono = tel.length === 10 ? `${tel.slice(0, 3)} ${tel.slice(3, 6)} ${tel.slice(6)}` : "";
+  const numero = s.numero != null ? `Núm. ${String(s.numero).padStart(4, "0")}` : s.codigo;
+  const fecha = s.creada_en
+    ? new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "America/Mexico_City" }).format(new Date(s.creada_en))
+    : null;
+  const nombre = s.contactos?.nombre?.trim() || "Sin nombre";
+  return {
+    titulo: (telefono || nombre).slice(0, 24),
+    descripcion: [telefono ? nombre : null, s.contactos?.municipio, numero, fecha].filter(Boolean).join(" · ").slice(0, 72),
+    /** Una línea para listas escritas ("Varios a la vez"). */
+    linea: [telefono, nombre, s.contactos?.municipio, numero].filter(Boolean).join(" · "),
+  };
+}
+
 function telefonoLegible(tel: string) {
   const d = tel.replace(/\D/g, "");
   if (d.length === 12 && d.startsWith("52")) return `+52 ${d.slice(2, 5)} ${d.slice(5, 8)} ${d.slice(8)}`;
@@ -397,7 +423,7 @@ async function reenviarSinAsignar(db: DB, canal: Canal, solicitudId: string, con
 function preguntaSeguimiento(s: SolicitudConContacto): Salida {
   return {
     tipo: "lista",
-    texto: `Seguimiento del prospecto ${folio(s)} (${s.contactos?.nombre ?? "Sin nombre"}, ${s.contactos?.municipio ?? "sin municipio"}).\n¿Cuál es su estado actual?`,
+    texto: `Seguimiento del prospecto ${etiquetaProspecto(s).linea}.\n¿Cuál es su estado actual?`,
     boton: "Ver opciones",
     opciones: [
       ...RESULTADOS.map((r) => ({ id: `res:${r.clave}:${s.id}`, titulo: r.titulo })),
@@ -850,7 +876,8 @@ async function enviarMenu(db: DB, canal: Canal, v: Vendedor, mas = false, o: { t
     seccion: "Material de venta",
   });
   // Si dejó una cotización a medias, la primera opción es retomarla.
-  const enCurso = cotizacionEnCurso(v, new Date());
+  // Hora del mensaje que se está atendiendo (procesarMensajeVendedor la guarda en ultimo_mensaje_wa).
+  const enCurso = cotizacionEnCurso(v, v.ultimo_mensaje_wa ? new Date(v.ultimo_mensaje_wa) : new Date());
   const extras = [
     ...(enCurso ? [{ id: "cot:seguir", titulo: "Continuar cotización", descripcion: enCurso.cliente.nombre ? `Para ${enCurso.cliente.nombre}` : "Donde se quedó", seccion: "En curso" }] : []),
     ...(o.extras ?? []),
@@ -895,11 +922,10 @@ async function enviarMisProspectos(db: DB, canal: Canal, v: Vendedor, para: "fic
     });
   }
   const opciones: Opcion[] = abiertas.slice(0, para === "seg" && abiertas.length > 1 ? 9 : 10).map(
-    (s): Opcion => ({
-      id: `${para}:${s.id}`,
-      titulo: folio(s),
-      descripcion: `${s.contactos?.nombre ?? "Sin nombre"} · ${s.contactos?.municipio ?? ""}`.trim(),
-    }),
+    (s): Opcion => {
+      const e = etiquetaProspecto(s);
+      return { id: `${para}:${s.id}`, titulo: e.titulo, descripcion: e.descripcion };
+    },
   );
   if (para === "seg" && abiertas.length > 1) {
     opciones.unshift({ id: "varios:", titulo: "Varios a la vez", descripcion: "El mismo resultado para varios prospectos" });
@@ -924,7 +950,7 @@ async function pedirVarios(db: DB, canal: Canal, v: Vendedor, ahora: Date) {
   const abiertas = (data ?? []) as SolicitudConContacto[];
   if (!abiertas.length) return enviarMisProspectos(db, canal, v, "seg");
   await guardarEstadoVendedor(db, v, { ...((v.estado_bot ?? {}) as EstadoVendedor), esperando: "varios", numerados: abiertas.map((s) => s.id), seleccion: [], desde: ahora.toISOString() });
-  const lineas = abiertas.map((s, i) => `${i + 1}) ${folio(s)} · ${s.contactos?.nombre ?? "Sin nombre"}${s.contactos?.municipio ? ` · ${s.contactos.municipio}` : ""}`);
+  const lineas = abiertas.map((s, i) => `${i + 1}) ${etiquetaProspecto(s).linea}`);
   return responder(canal, v, {
     tipo: "texto",
     texto: `*Varios a la vez.* Estos son sus prospectos abiertos:\n\n${lineas.join("\n")}\n\nEscriba los números de los que quiere registrar, separados por coma. Por ejemplo: *1, 3, 4*\nPara salir escriba "cancelar".`,
