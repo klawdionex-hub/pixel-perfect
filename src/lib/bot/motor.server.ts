@@ -113,6 +113,22 @@ function tituloCorto(nombre: string) {
 }
 
 /** Interpreta la respuesta del cliente contra una lista de opciones. */
+/**
+ * Quita saludos y frases de presentación del nombre que escribe el cliente:
+ * "Hola, soy Juan Carlos Carrara" → "Juan Carlos Carrara"; "Buenas tardes, me llamo Ana." → "Ana".
+ */
+export function limpiarNombre(t: string): string {
+  let n = t.trim();
+  const saludos = /^(hola+|buen[oa]s?(\s+(d[ií]as?|tardes?|noches?))?|qu[eé]\s+tal|saludos|que\s+onda|ola)\b[\s,.!¡¿?:;-]*/i;
+  const presentacion = /^(yo\s+)?(soy|me\s+llamo|mi\s+nombre\s+es|habla|le\s+habla|les\s+habla|con|de\s+parte\s+de)\b[\s,.:;-]*/i;
+  for (let i = 0; i < 4; i++) {
+    const antes = n;
+    n = n.replace(saludos, "").replace(presentacion, "").trim();
+    if (n === antes) break;
+  }
+  return n.replace(/[\s,.!¡¿?:;-]+$/g, "").trim();
+}
+
 function elegir(e: Entrada, opciones: Opcion[]): Opcion | null {
   if (e.opcionId) {
     const o = opciones.find((x) => x.id === e.opcionId);
@@ -319,7 +335,7 @@ function preguntaDe(ses: Sesion, paso: Paso): Salida {
     case "nombre":
       return { tipo: "texto", texto: t("saludo") };
     case "menu":
-      return { tipo: "lista", texto: t("menu"), boton: "Ver opciones", opciones: menuDe(ses) };
+      return { tipo: "lista", texto: t("menu"), boton: "Elegir una opción", opciones: menuDe(ses) };
     case "regreso": {
       const opciones: Opcion[] = [{ id: "r_nueva", titulo: "Nueva solicitud" }];
       if (ses.estado.solicitud_id) opciones.push({ id: "r_seg", titulo: "Seguimiento" });
@@ -483,7 +499,7 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
   const r = respuestas(ses);
   switch (paso) {
     case "nombre": {
-      const nombre = textoLibre(e, 80);
+      const nombre = limpiarNombre(textoLibre(e, 80) ?? "");
       if (!nombre || /^\d+$/.test(nombre)) return "invalido";
       ses.contacto.nombre = nombre
         .toLowerCase()

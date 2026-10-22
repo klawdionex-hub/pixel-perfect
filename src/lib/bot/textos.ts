@@ -58,7 +58,9 @@ export const TEXTOS: Record<ClaveTexto, DefTexto> = {
   },
   menu: {
     etiqueta: "Menú principal",
-    porDefecto: "Gracias, {nombre}. ¿En qué podemos ayudarle?",
+    porDefecto:
+      "Gracias, {nombre}. ¿En qué podemos ayudarle?\n\nPor favor, toque el botón *Elegir una opción* que aparece abajo y seleccione la que corresponda.",
+    anteriores: ["Gracias, {nombre}. ¿En qué podemos ayudarle?"],
   },
   cliente_regresa: {
     etiqueta: "Saludo a clientes que regresan",

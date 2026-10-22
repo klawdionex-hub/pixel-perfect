@@ -613,5 +613,16 @@ marca = log.length;
 await vendedor("v2", "Lo tomo", `tomar:${sinTomarConFoto.id}`);
 afirmar(log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana") && l.includes("[Imagen]")).length === 1, "al tomarlo llegan las fotos una sola vez");
 
+// --- Nombre con saludo y menú con instrucción
+const NN = "+525590000002";
+await cliente(NN, "Hola");
+await cliente(NN, "Hola Soy Juan Carlos Carrara");
+afirmar(tablas["contactos"]!.find((c) => c.telefono === NN)!.nombre === "Juan Carlos Carrara", "quita el saludo del nombre");
+afirmar(log.at(-1)!.includes("Gracias, Juan Carlos Carrara") && log.at(-1)!.includes("Elegir una opción"), "el menú pide elegir una opción");
+const NN2 = "+525590000003";
+await cliente(NN2, "Buenas tardes");
+await cliente(NN2, "buenas tardes, me llamo ana lópez.");
+afirmar(tablas["contactos"]!.find((c) => c.telefono === NN2)!.nombre === "Ana López", "quita buenas tardes y me llamo");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;
