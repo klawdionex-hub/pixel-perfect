@@ -6,6 +6,7 @@ import { normalizarOpciones, textoDeSalida, type Opcion, type Salida } from "./s
 import { enHorarioLaboral, horaDeEscribirClientes, texto, type ClaveTexto, type ConfigBot } from "./textos";
 import { avisarNuevoProspecto, reenviarMensajeCliente, tareasVendedores } from "./vendedores.server";
 import { leerCoordenadas } from "./coordenadas";
+import { detectarIntencion, pareceNoNombre, type Intencion } from "./intencion";
 import { zonaDeMunicipio } from "./municipios";
 import { NOMBRE_PASO } from "./pasos";
 
@@ -55,7 +56,8 @@ type Respuestas = Partial<
     | "horario_preferido"
     | "equipo_compra"
     | "zona"
-    | "abandono_en",
+    | "abandono_en"
+    | "pedido_cliente",
     string
   >
 >;
@@ -69,6 +71,8 @@ type DatosSesion = {
   respuestas?: Respuestas | undefined;
   /** Preguntas de la encuesta en curso (para el contador "Pregunta 2 de 8") y si ya se avisó cuántas son. */
   encuesta?: { pasos: string[]; avisada?: boolean } | undefined;
+  /** Lo que el cliente pidió escribiendo (en lugar de su nombre); se usa al tener el nombre. */
+  pendiente?: { texto: string; intencion: Intencion } | undefined;
 };
 
 type Estado = {
@@ -386,7 +390,46 @@ function respuestas(ses: Sesion) {
 
 /** Siguiente paso después de la zona y el municipio, según el flujo. */
 function pasoDeServicio(ses: Sesion): Paso {
-  return ses.estado.datos.flujo === "instalacion" ? "tipo_instalacion" : "equipo";
+  const d = ses.estado.datos;
+  if (d.flujo === "instalacion") return d.servicio ? "tiene_porton" : "tipo_instalacion";
+  return d.equipo ? "marca" : "equipo";
+}
+
+/**
+ * Empieza la encuesta que corresponde a lo que el cliente escribió (en lugar de tocar el menú).
+ * Si mencionó el tipo de portón o el equipo, esa pregunta se salta. Devuelve null si no se reconoce nada.
+ */
+async function iniciarPorIntencion(ses: Sesion, it: Intencion, texto: string): Promise<Resultado | null> {
+  const compraDisponible = ses.servicios.some((sv) => sv.codigo === SERVICIO_COMPRA && sv.activo);
+  if (it.asesor) return "asesor";
+  if (it.info) {
+    await enviarInformacion(ses, it.info);
+    return "menu";
+  }
+  if (!it.flujo) return null;
+  const flujo = it.flujo === "compra" && !compraDisponible ? "instalacion" : it.flujo;
+  const primero = iniciarFlujo(ses, flujo);
+  const d = ses.estado.datos;
+  respuestas(ses).pedido_cliente = texto.slice(0, 300);
+  const activo = (codigo: number) => ses.servicios.some((sv) => sv.codigo === codigo && sv.activo);
+  const quitar = (paso: Paso) => {
+    if (d.encuesta) d.encuesta.pasos = d.encuesta.pasos.filter((p) => p !== paso);
+  };
+  if (flujo === "instalacion" && it.tipoPorton && activo(it.tipoPorton)) {
+    d.servicio = it.tipoPorton;
+    quitar("tipo_instalacion");
+  }
+  if ((flujo === "reparacion" || flujo === "mantenimiento") && it.tipoPorton) {
+    d.equipo = it.tipoPorton;
+    quitar("equipo");
+  }
+  if (flujo === "compra" && it.equipoCompra) {
+    respuestas(ses).equipo_compra = it.equipoCompra;
+    quitar("equipo_compra");
+    if (ses.contacto.municipio) return "cerrar";
+    return "municipio";
+  }
+  return primero === "tipo_instalacion" || primero === "equipo" ? pasoDeServicio(ses) : primero;
 }
 
 // La zona se deduce del municipio y el material ya no se pregunta (la encuesta larga hacía que la abandonaran).
@@ -499,12 +542,31 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
   const r = respuestas(ses);
   switch (paso) {
     case "nombre": {
+      // Si en lugar de su nombre escribe lo que necesita, se guarda y se le vuelve a pedir el nombre.
+      const crudo = textoLibre(e, 300) ?? "";
+      // Se revisa sin el saludo ("Buenas tardes, me llamo Ana" es un nombre).
+      if (crudo && (/[?¿]/.test(crudo) || pareceNoNombre(limpiarNombre(crudo) || crudo))) {
+        const intencion = detectarIntencion(crudo);
+        ses.estado.datos.pendiente = { texto: crudo, intencion };
+        await enviar(ses, {
+          tipo: "texto",
+          texto: `Con gusto le ayudo${intencion.frase ? ` con ${intencion.frase}` : ""}. Antes, ¿podría indicarme su *nombre*, por favor?`,
+        });
+        return "igual";
+      }
       const nombre = limpiarNombre(textoLibre(e, 80) ?? "");
       if (!nombre || /^\d+$/.test(nombre)) return "invalido";
       ses.contacto.nombre = nombre
         .toLowerCase()
         .replace(/(^|\s)\p{L}/gu, (m) => m.toUpperCase());
       await ses.db.from("contactos").update({ nombre: ses.contacto.nombre }).eq("id", ses.contacto.id);
+      // Si ya había dicho qué necesita, se va directo a esa encuesta sin pasar por el menú.
+      const pendiente = ses.estado.datos.pendiente;
+      if (pendiente) {
+        ses.estado.datos.pendiente = undefined;
+        const r = await iniciarPorIntencion(ses, pendiente.intencion, pendiente.texto);
+        if (r) return r;
+      }
       return "menu";
     }
     case "menu":
@@ -528,7 +590,12 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
         return "invalido";
       }
       const o = elegir(e, menuDe(ses));
-      if (!o) return "invalido";
+      if (!o) {
+        // Escribió en lugar de tocar una opción: se intenta reconocer qué quiere.
+        const libre = textoLibre(e, 300);
+        const r = libre ? await iniciarPorIntencion(ses, detectarIntencion(libre), libre) : null;
+        return r ?? "invalido";
+      }
       if (o.id === "m_inst") return iniciarFlujo(ses, "instalacion");
       if (o.id === "m_rep") return iniciarFlujo(ses, "reparacion");
       if (o.id === "m_mant") return iniciarFlujo(ses, "mantenimiento");
@@ -901,6 +968,10 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
       ses.estado.solicitud_id = ultima?.id ?? null;
       await irA(ses, "regreso");
     } else {
+      // Si el primer mensaje ya dice qué necesita, se recuerda para ir directo a esa encuesta al tener el nombre.
+      const primero = textoLibre(e, 300);
+      const intencion = primero ? detectarIntencion(primero) : {};
+      if (primero && intencion.flujo) ses.estado.datos.pendiente = { texto: primero, intencion };
       await enviarBienvenida(ses);
       await irA(ses, "nombre");
     }

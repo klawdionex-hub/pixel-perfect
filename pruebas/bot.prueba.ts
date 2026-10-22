@@ -624,5 +624,44 @@ await cliente(NN2, "Buenas tardes");
 await cliente(NN2, "buenas tardes, me llamo ana lópez.");
 afirmar(tablas["contactos"]!.find((c) => c.telefono === NN2)!.nombre === "Ana López", "quita buenas tardes y me llamo");
 
+// --- Reconocer lo que pide el cliente cuando escribe en lugar de elegir
+const estadoDe = (tel: string) => tablas["estado_conversacion"]!.find((x) => x.contacto_id === tablas["contactos"]!.find((c) => c.telefono === tel)!.id)!;
+// Caso real: escribe su pregunta en lugar del nombre
+const R1 = "+525590000011";
+await cliente(R1, "¡Hola! Quiero más información.");
+await cliente(R1, "Cuánto me salen los motores tipo pistón que habrán la puerta de dos hojas hacia adentro");
+afirmar(!tablas["contactos"]!.find((c) => c.telefono === R1)!.nombre && log.at(-1)!.includes("los pistones para su portón") && log.at(-1)!.includes("*nombre*"), "la pregunta no se guarda como nombre y se vuelve a pedir el nombre");
+await cliente(R1, "Pedro Ramírez");
+const e1 = estadoDe(R1);
+afirmar(tablas["contactos"]!.find((c) => c.telefono === R1)!.nombre === "Pedro Ramírez", "luego guarda el nombre real");
+afirmar(e1.paso_actual === "municipio" && (e1.datos as { servicio?: number }).servicio === 2 && log.at(-1)!.includes("Pregunta 1 de 5"), "va directo a instalación, abatible hacia adentro, sin la pregunta del tipo");
+afirmar((e1.datos as { respuestas?: { pedido_cliente?: string } }).respuestas?.pedido_cliente?.includes("pistón"), "guarda lo que escribió para el vendedor");
+// En el menú escribe en lugar de tocar
+const R2 = "+525590000012";
+await cliente(R2, "Hola");
+await cliente(R2, "Laura");
+await cliente(R2, "mi portón no abre, creo que se descompuso el motor");
+afirmar(estadoDe(R2).paso_actual === "municipio" && (estadoDe(R2).datos as { flujo?: string }).flujo === "reparacion", "texto libre en el menú: reparación");
+const R3 = "+525590000013";
+await cliente(R3, "Hola");
+await cliente(R3, "Sofía");
+marca = log.length;
+await cliente(R3, "¿dónde están ubicados?");
+afirmar(log.slice(marca).some((l) => l.includes("Horario de atención")) && estadoDe(R3).paso_actual === "menu", "texto libre en el menú: ubicación y vuelve al menú");
+await cliente(R3, "asdf qwer");
+afirmar(log.slice(-2)[0]!.includes("no logré identificar"), "si no se reconoce nada, pide elegir como antes");
+await cliente(R3, "quiero cotizar un portón elevadizo");
+afirmar((estadoDe(R3).datos as { servicio?: number }).servicio === 3 && estadoDe(R3).paso_actual === "municipio", "texto libre en el menú: instalación de elevadizo");
+// El primer mensaje ya dice lo que quiere
+const R4 = "+525590000014";
+await cliente(R4, "Buenas, ¿cuánto cuesta un portón corredizo automático?");
+await cliente(R4, "Mario");
+afirmar((estadoDe(R4).datos as { servicio?: number }).servicio === 4 && estadoDe(R4).paso_actual === "municipio", "si el primer mensaje dice qué quiere, al dar el nombre va directo");
+// Un nombre normal largo se sigue tomando como nombre
+const R5 = "+525590000015";
+await cliente(R5, "Hola");
+await cliente(R5, "Juan Carlos Carrara López");
+afirmar(tablas["contactos"]!.find((c) => c.telefono === R5)!.nombre === "Juan Carlos Carrara López" && estadoDe(R5).paso_actual === "menu", "un nombre de 4 palabras se guarda normal");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

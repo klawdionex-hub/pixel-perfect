@@ -475,7 +475,7 @@ async function fichaResumida(db: DB, s: SolicitudConContacto): Promise<Salida> {
     `*Prospecto ${folio(s)}*`,
     `Servicio: ${await nombreServicio(db, s)}`,
     `Zona: ${zonaDe(s)}`,
-    ...["medidas", "tiene_porton", "equipo_compra", "falla", "horario_preferido"].map(clave).filter((x): x is string => !!x),
+    ...["pedido_cliente", "medidas", "tiene_porton", "equipo_compra", "falla", "horario_preferido"].map(clave).filter((x): x is string => !!x),
     `Observaciones: ${marcas(s)}`,
     fotos ? `Fotos del cliente: ${fotos} (se envían al tomarlo)` : null,
     "",

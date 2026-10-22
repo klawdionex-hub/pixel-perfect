@@ -123,6 +123,7 @@ export const ETIQUETAS_DATOS: Record<string, string> = {
   equipo_compra: "Equipo solicitado",
   zona: "Zona",
   abandono_en: "Dejó la encuesta en",
+  pedido_cliente: "Lo que escribió el cliente",
   color: "Color",
   observaciones: "Observaciones",
 };
