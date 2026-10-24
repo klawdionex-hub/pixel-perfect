@@ -522,10 +522,23 @@ async function guardarEstadoVendedor(db: DB, v: Vendedor, estado: EstadoVendedor
 }
 
 /** Tarjeta de contacto y datos completos del prospecto para el vendedor asignado. */
+/**
+ * Nombre con el que el vendedor guarda al cliente en su celular:
+ * "Juan Pérez · Texcoco, San Lorenzo"; si no dio un nombre válido, "Cliente 0045" (más la colonia si la dio).
+ */
+export function nombreTarjeta(s: { numero?: number | null; codigo: string | null; contactos?: { nombre?: string | null; municipio?: string | null } | null }) {
+  const nombre = (s.contactos?.nombre ?? "").trim();
+  const t = nombre.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const valido = t.length >= 3 && !/^\d+$/.test(t) && !/^(.)\1*$/.test(t) && !/^(no|na|n\/a|ninguno|nadie|anonimo|cliente|sin nombre|no quiero|xxx?)\b/.test(t);
+  const lugar = s.contactos?.municipio?.trim();
+  const base = valido ? nombre : `Cliente ${s.numero != null ? String(s.numero).padStart(4, "0") : s.codigo ?? ""}`.trim();
+  return (lugar ? `${base} · ${lugar}` : base).slice(0, 60);
+}
+
 async function entregarDatos(db: DB, canal: Canal, v: Vendedor, s: SolicitudConContacto, conConversacion = false) {
   const c = s.contactos;
   if (c?.telefono && !c.telefono.startsWith("sim-")) {
-    await responder(canal, v, { tipo: "contacto", nombre: `${folio(s, " ")} ${c.nombre ?? ""}`.trim(), telefono: c.telefono });
+    await responder(canal, v, { tipo: "contacto", nombre: nombreTarjeta(s), telefono: c.telefono });
   }
   for (const salida of await datosCompletos(db, s)) await responder(canal, v, salida);
   // Si no terminó la encuesta o escribió cosas fuera de ella, se manda la conversación para no perder nada.

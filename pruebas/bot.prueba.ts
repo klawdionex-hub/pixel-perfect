@@ -1,6 +1,6 @@
 // Pruebas del bot con base de datos falsa. Ejecutar:  npm run prueba:bot
 import { pasarContactoAVendedores, procesarMensajeCliente, procesarRecordatorios, type Canal } from "@/lib/bot/motor.server";
-import { procesarMensajeVendedor, tareasVendedores } from "@/lib/bot/vendedores.server";
+import { procesarMensajeVendedor, nombreTarjeta, tareasVendedores } from "@/lib/bot/vendedores.server";
 import { textoDeSalida, type Salida } from "@/lib/bot/salida";
 import { crearBD } from "./bd-falsa";
 
@@ -64,7 +64,7 @@ if (process.env["VER_CONVERSACION"]) console.log(log.filter((l) => !l.startsWith
 // --- Lo tomo y venta
 tablas["usuarios_perfil"]![0]!.ultimo_mensaje_wa = reloj.ahora.toISOString();
 await vendedor("v1", "Lo tomo", `tomar:${sA!.id}`);
-afirmar(sA!.vendedor_id === "v1" && log.some((l) => l.includes(`${sA!.codigo} Juan`) && l.includes("[Contacto] ")), "Lo tomo asigna y manda tarjeta");
+afirmar(sA!.vendedor_id === "v1" && log.some((l) => l.includes("[Contacto] Juan Pérez · Texcoco, San Lorenzo")), "Lo tomo asigna y manda tarjeta");
 await vendedor("v2", "0001 vendido 9000");
 afirmar(sA!.etapa === 1 && log.at(-1)!.includes("asignado a Carlos"), "otro vendedor no puede cerrar prospecto ajeno");
 await vendedor("v1", "0001 vendido 12500");
@@ -688,6 +688,11 @@ afirmar(tomaU1.at(-1)!.includes("Ver conversación"), "después de tomarlo se of
 marca = log.length;
 await vendedor("v2", "Ver conversación", `conv:${solU1.id}`);
 afirmar(log.slice(marca).some((l) => l.includes("*Cliente*") && l.includes("Necesito que vengan")), "Ver conversación manda la conversación");
+
+// --- Nombre de la tarjeta de contacto
+afirmar(nombreTarjeta({ numero: 45, codigo: "3-1-0045", contactos: { nombre: "Juan Pérez", municipio: "Texcoco, San Lorenzo" } }) === "Juan Pérez · Texcoco, San Lorenzo", "tarjeta: nombre y colonia");
+afirmar(nombreTarjeta({ numero: 45, codigo: "3-1-0045", contactos: { nombre: "no", municipio: "Chalco" } }) === "Cliente 0045 · Chalco", "tarjeta sin nombre válido: Cliente y número");
+afirmar(nombreTarjeta({ numero: 7, codigo: "3-1-0007", contactos: { nombre: null, municipio: null } }) === "Cliente 0007", "tarjeta sin nombre ni colonia");
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;
