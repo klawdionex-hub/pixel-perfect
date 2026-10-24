@@ -663,5 +663,31 @@ await cliente(R5, "Hola");
 await cliente(R5, "Juan Carlos Carrara López");
 afirmar(tablas["contactos"]!.find((c) => c.telefono === R5)!.nombre === "Juan Carlos Carrara López" && estadoDe(R5).paso_actual === "menu", "un nombre de 4 palabras se guarda normal");
 
+// --- Mensajes fuera de la encuesta, urgencia, interés y conversación para el vendedor
+reloj.ahora = new Date("2026-10-26T16:00:00Z"); // lunes 10:00 CDMX
+const U1 = "+525590000021";
+await cliente(U1, "Hola");
+await cliente(U1, "Necesito que vengan, se quedó trabado mi portón y no puedo salir");
+const U2 = "+525590000022";
+await cliente(U2, "Hola");
+reloj.ahora = new Date(reloj.ahora.getTime() + 26 * 3600000);
+await procesarRecordatorios(db, canal, reloj.ahora);
+const solU1 = solDe(U1)!;
+const solU2 = solDe(U2)!;
+afirmar(solU1 && String(solU1.datos.fuera_encuesta).includes("no puedo salir") && solU1.urgente, "lo escrito fuera de la encuesta se guarda y marca urgente");
+afirmar(tablas["contactos"]!.find((c) => c.telefono === U1)!.nivel_interes === "medio" && tablas["contactos"]!.find((c) => c.telefono === U2)!.nivel_interes === "bajo", "interés: medio si escribió algo, bajo si solo saludó");
+marca = log.length;
+await vendedor("v2", "Ver detalles", `ver:${solU1.id}`);
+const resumenU1 = log.slice(marca).join(" ");
+afirmar(resumenU1.includes("Mensajes fuera de la encuesta: 1") && !resumenU1.includes("no puedo salir") && resumenU1.includes("Interés: Medio"), "antes de tomarlo: solo el conteo, sin el contenido");
+marca = log.length;
+await vendedor("v2", "Lo tomo", `tomar:${solU1.id}`);
+const tomaU1 = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana"));
+afirmar(tomaU1.some((l) => l.includes("Conversación con el bot") && l.includes("Escribió fuera de la encuesta") && l.includes("no puedo salir")), "al tomarlo llega la conversación con lo escrito fuera de la encuesta");
+afirmar(tomaU1.at(-1)!.includes("Ver conversación"), "después de tomarlo se ofrece Ver conversación");
+marca = log.length;
+await vendedor("v2", "Ver conversación", `conv:${solU1.id}`);
+afirmar(log.slice(marca).some((l) => l.includes("*Cliente*") && l.includes("Necesito que vengan")), "Ver conversación manda la conversación");
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

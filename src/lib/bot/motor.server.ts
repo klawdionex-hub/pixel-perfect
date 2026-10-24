@@ -6,6 +6,7 @@ import { normalizarOpciones, textoDeSalida, type Opcion, type Salida } from "./s
 import { enHorarioLaboral, horaDeEscribirClientes, texto, type ClaveTexto, type ConfigBot } from "./textos";
 import { avisarNuevoProspecto, reenviarMensajeCliente, tareasVendedores } from "./vendedores.server";
 import { leerCoordenadas } from "./coordenadas";
+import { interesDe, pareceUrgente } from "@/lib/afpam";
 import { detectarIntencion, pareceNoNombre, type Intencion } from "./intencion";
 import { zonaDeMunicipio } from "./municipios";
 import { NOMBRE_PASO } from "./pasos";
@@ -57,7 +58,8 @@ type Respuestas = Partial<
     | "equipo_compra"
     | "zona"
     | "abandono_en"
-    | "pedido_cliente",
+    | "pedido_cliente"
+    | "fuera_encuesta",
     string
   >
 >;
@@ -71,6 +73,8 @@ type DatosSesion = {
   respuestas?: Respuestas | undefined;
   /** Preguntas de la encuesta en curso (para el contador "Pregunta 2 de 8") y si ya se avisó cuántas son. */
   encuesta?: { pasos: string[]; avisada?: boolean } | undefined;
+  /** Mensajes del cliente que no encajaron con la pregunta (se destacan al vendedor). */
+  fuera?: string[] | undefined;
   /** Lo que el cliente pidió escribiendo (en lugar de su nombre); se usa al tener el nombre. */
   pendiente?: { texto: string; intencion: Intencion } | undefined;
 };
@@ -395,6 +399,14 @@ function pasoDeServicio(ses: Sesion): Paso {
   return d.equipo ? "marca" : "equipo";
 }
 
+/** Guarda un mensaje que no encajó con la pregunta (máximo 10, para no saturar al vendedor). */
+function anotarFuera(ses: Sesion, e: Entrada) {
+  const t = e.texto?.trim() || (e.media ? `[${e.tipo === "image" || e.media.tipo?.startsWith("image") ? "foto" : e.tipo ?? "archivo"}]` : "");
+  if (!t) return;
+  const lista = (ses.estado.datos.fuera ??= []);
+  if (lista.length < 10) lista.push(t.slice(0, 300));
+}
+
 /**
  * Empieza la encuesta que corresponde a lo que el cliente escribió (en lugar de tocar el menú).
  * Si mencionó el tipo de portón o el equipo, esa pregunta se salta. Devuelve null si no se reconoce nada.
@@ -443,7 +455,9 @@ const PASOS_ENCUESTA: Record<Flujo, Paso[]> = {
 function iniciarFlujo(ses: Sesion, flujo: Flujo): Paso {
   ses.estado.flujo_actual = "solicitud";
   const conMunicipio = !!ses.contacto.municipio;
+  const fuera = ses.estado.datos.fuera;
   ses.estado.datos = {
+    ...(fuera?.length ? { fuera } : {}),
     flujo,
     servicio: flujo === "reparacion" ? 8 : flujo === "mantenimiento" ? 9 : flujo === "compra" ? SERVICIO_COMPRA : undefined,
     respuestas: {},
@@ -548,6 +562,7 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
       if (crudo && (/[?¿]/.test(crudo) || pareceNoNombre(limpiarNombre(crudo) || crudo))) {
         const intencion = detectarIntencion(crudo);
         ses.estado.datos.pendiente = { texto: crudo, intencion };
+        anotarFuera(ses, e);
         await enviar(ses, {
           tipo: "texto",
           texto: `Con gusto le ayudo${intencion.frase ? ` con ${intencion.frase}` : ""}. Antes, ¿podría indicarme su *nombre*, por favor?`,
@@ -720,6 +735,9 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
 
 async function crearSolicitud(ses: Sesion, completa: boolean) {
   const d = ses.estado.datos;
+  if (d.fuera?.length) respuestas(ses).fuera_encuesta = d.fuera.join(" | ").slice(0, 1000);
+  const lo = [d.fuera?.join(" "), d.respuestas?.pedido_cliente].filter(Boolean).join(" ");
+  if (lo && pareceUrgente(lo)) d.urgente = true;
   const { data, error } = await ses.db
     .from("solicitudes")
     .insert({
@@ -738,6 +756,10 @@ async function crearSolicitud(ses: Sesion, completa: boolean) {
     .single();
   if (error || !data) throw new Error(`No se pudo crear la solicitud: ${error?.message}`);
   ses.estado.solicitud_id = data.id;
+  // Nivel de interés del contacto (no se cambia si ya está marcado como "no le interesó").
+  if (ses.contacto.nivel_interes !== "no le interesó") {
+    await ses.db.from("contactos").update({ nivel_interes: interesDe({ completa, datos: d.respuestas }) }).eq("id", ses.contacto.id);
+  }
   // Liga la conversación y los archivos que llegaron antes de crear la solicitud.
   await ses.db.from("mensajes").update({ solicitud_id: data.id }).eq("contacto_id", ses.contacto.id).is("solicitud_id", null);
   await ses.db.from("archivos").update({ solicitud_id: data.id }).eq("contacto_id", ses.contacto.id).is("solicitud_id", null);
@@ -980,6 +1002,7 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
 
   // Un archivo fuera del paso de foto se guarda, pero no cuenta como respuesta.
   if (e.media && !e.texto && paso !== "foto") {
+    anotarFuera(ses, e);
     await enviar(ses, await avisoYContador(ses, paso, preguntaDe(ses, paso)));
     return;
   }
@@ -987,6 +1010,7 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
   const res = await procesarPaso(ses, paso, e);
   if (res === "igual") return;
   if (res === "invalido") {
+    anotarFuera(ses, e);
     ses.estado.intentos_fallidos += 1;
     if (ses.estado.intentos_fallidos >= 2) {
       await pasarAAsesor(ses);

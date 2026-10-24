@@ -124,6 +124,30 @@ export const ETIQUETAS_DATOS: Record<string, string> = {
   zona: "Zona",
   abandono_en: "Dejó la encuesta en",
   pedido_cliente: "Lo que escribió el cliente",
+  fuera_encuesta: "Escribió fuera de la encuesta",
   color: "Color",
   observaciones: "Observaciones",
 };
+
+/** Palabras que indican urgencia en lo que escribe el cliente. */
+export const PALABRAS_URGENCIA = ["urgente", "urge", "emergencia", "no puedo salir", "no puedo entrar", "no puedo sacar", "trabado", "atorado", "atoro", "quedo abierto", "se quedo abierto", "hoy mismo", "ahorita", "lo antes posible", "cuanto antes"];
+
+export function pareceUrgente(t: string) {
+  const n = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return PALABRAS_URGENCIA.some((p) => n.includes(p));
+}
+
+/**
+ * Nivel de interés del prospecto, para separar a quien solo saludó de quien sí quiere algo:
+ * alto = terminó la encuesta; medio = no terminó pero dio datos o escribió lo que quería; bajo = solo saludó.
+ */
+export function interesDe(s: { completa: boolean; datos?: unknown }): "alto" | "medio" | "bajo" {
+  if (s.completa) return "alto";
+  const d = (s.datos ?? {}) as Record<string, unknown>;
+  if (d["pedido_cliente"] || d["fuera_encuesta"]) return "medio";
+  const abandono = String(d["abandono_en"] ?? "");
+  if (!abandono || abandono === "Nombre" || abandono === "Menú principal") return "bajo";
+  return "medio";
+}
+
+export const TEXTO_INTERES = { alto: "Alto (terminó la encuesta)", medio: "Medio (no terminó, pero dio datos)", bajo: "Bajo (solo saludó)" } as const;

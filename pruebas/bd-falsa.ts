@@ -18,6 +18,7 @@ export function crearBD(inicial: Record<string, Fila[]>) {
 
   function nueva(t: string, r: Fila): Fila {
     const base: Fila = { id: `id${uid++}` };
+    if (t === "mensajes") base.creado_en = new Date(reloj.ahora.getTime() + uid).toISOString();
     if (t === "cotizaciones") {
       const numero = (tablas["cotizaciones"]?.length ?? 0) + 1;
       Object.assign(base, { numero, folio: `COT-${String(numero).padStart(4, "0")}` });

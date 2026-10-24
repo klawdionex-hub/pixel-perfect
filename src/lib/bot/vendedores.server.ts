@@ -3,7 +3,7 @@
 // recordatorios de prospectos sin tomar y archivado semanal.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
-import { ETIQUETAS_DATOS, moneda } from "@/lib/afpam";
+import { ETIQUETAS_DATOS, TEXTO_INTERES, interesDe, moneda } from "@/lib/afpam";
 import type { Canal } from "./motor.server";
 import type { Opcion, Salida } from "./salida";
 import { atenderCotizacion, cotizacionEnCurso, pausarCotizacion } from "./cotizar.server";
@@ -477,6 +477,8 @@ async function fichaResumida(db: DB, s: SolicitudConContacto): Promise<Salida> {
     `Zona: ${zonaDe(s)}`,
     ...["pedido_cliente", "medidas", "tiene_porton", "equipo_compra", "falla", "horario_preferido"].map(clave).filter((x): x is string => !!x),
     `Observaciones: ${marcas(s)}`,
+    `Interés: ${TEXTO_INTERES[interesDe(s)]}`,
+    datos["fuera_encuesta"] ? `Mensajes fuera de la encuesta: ${String(datos["fuera_encuesta"]).split(" | ").length} (se envían al tomarlo)` : null,
     fotos ? `Fotos del cliente: ${fotos} (se envían al tomarlo)` : null,
     "",
     "Los datos de contacto se envían a quien lo tome.",
@@ -502,6 +504,7 @@ async function datosCompletos(db: DB, s: SolicitudConContacto): Promise<Salida[]
     `Servicio: ${await nombreServicio(db, s)}`,
     ...lineasDelTrabajo(s),
     `Observaciones: ${marcas(s)}`,
+    `Interés: ${TEXTO_INTERES[interesDe(s)]}`,
     `Abrir chat: https://wa.me/${(c?.telefono ?? "").replace(/\D/g, "")}`,
   ];
   return [{ tipo: "texto", texto: lineas.join("\n") }, ...(await archivosDe(db, s.id))];
@@ -519,12 +522,59 @@ async function guardarEstadoVendedor(db: DB, v: Vendedor, estado: EstadoVendedor
 }
 
 /** Tarjeta de contacto y datos completos del prospecto para el vendedor asignado. */
-async function entregarDatos(db: DB, canal: Canal, v: Vendedor, s: SolicitudConContacto) {
+async function entregarDatos(db: DB, canal: Canal, v: Vendedor, s: SolicitudConContacto, conConversacion = false) {
   const c = s.contactos;
   if (c?.telefono && !c.telefono.startsWith("sim-")) {
     await responder(canal, v, { tipo: "contacto", nombre: `${folio(s, " ")} ${c.nombre ?? ""}`.trim(), telefono: c.telefono });
   }
   for (const salida of await datosCompletos(db, s)) await responder(canal, v, salida);
+  // Si no terminó la encuesta o escribió cosas fuera de ella, se manda la conversación para no perder nada.
+  const datos = (s.datos ?? {}) as Record<string, unknown>;
+  if (conConversacion && (!s.completa || datos["fuera_encuesta"] || datos["pedido_cliente"])) {
+    for (const salida of await conversacionDe(db, s)) await responder(canal, v, salida);
+  }
+}
+
+/**
+ * La conversación del cliente con el bot, en texto, para el vendedor asignado.
+ * Primero lo que escribió fuera de la encuesta; luego la conversación (lo del bot, recortado).
+ */
+async function conversacionDe(db: DB, s: SolicitudConContacto): Promise<Salida[]> {
+  const { data } = await db
+    .from("mensajes")
+    .select("direccion, contenido, tipo, creado_en")
+    .eq("contacto_id", s.contacto_id)
+    .order("creado_en", { ascending: false })
+    .limit(60);
+  // Desde 14 días antes del prospecto, para no mezclar conversaciones de meses atrás.
+  const desde = new Date(new Date(s.creada_en).getTime() - 14 * 86400000).toISOString();
+  const mensajes = (data ?? []).filter((m) => m.creado_en >= desde).reverse().slice(-40);
+  const hora = (iso: string) =>
+    new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Mexico_City" }).format(new Date(iso));
+  const lineas = mensajes.map((m) => {
+    const contenido = (m.contenido ?? "").replace(/\s+/g, " ").trim() || `[${m.tipo === "image" || m.tipo === "imagen" ? "foto" : m.tipo}]`;
+    return m.direccion === "entrante"
+      ? `*Cliente* ${hora(m.creado_en)}: ${contenido.slice(0, 600)}`
+      : `_Bot: ${contenido.length > 70 ? `${contenido.slice(0, 70)}…` : contenido}_`;
+  });
+  const datos = (s.datos ?? {}) as Record<string, unknown>;
+  const fuera = String(datos["fuera_encuesta"] ?? "").split(" | ").filter(Boolean);
+  const encabezado = [
+    `*Conversación con el bot – ${folio(s)}*`,
+    fuera.length ? `\n*Escribió fuera de la encuesta:*\n${fuera.map((f) => `· ${f}`).join("\n")}` : "",
+    "",
+  ].join("\n");
+  const partes: string[] = [];
+  let actual = encabezado;
+  for (const l of lineas.length ? lineas : ["(Sin mensajes guardados.)"]) {
+    if ((actual + "\n" + l).length > 3500) {
+      partes.push(actual);
+      actual = "";
+    }
+    actual = actual ? `${actual}\n${l}` : l;
+  }
+  if (actual) partes.push(actual);
+  return partes.map((texto): Salida => ({ tipo: "texto", texto }));
 }
 
 async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, ahora: Date) {
@@ -544,7 +594,10 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
     if (s.vendedor_id === v.id) {
       await responder(canal, v, { tipo: "texto", texto: `El prospecto ${folio(s)} está asignado a usted. Le envío los datos del cliente.` });
       await entregarDatos(db, canal, v, s);
-      return otraAccion(db, canal, v, [{ id: "cmd:mis", titulo: "Ver mis prospectos" }]);
+      return otraAccion(db, canal, v, [
+    { id: `conv:${s.id}`, titulo: "Ver conversación" },
+    { id: "cmd:mis", titulo: "Ver mis prospectos" },
+  ]);
     }
     const { data: otro } = await db.from("usuarios_perfil").select("nombre").eq("id", s.vendedor_id ?? "").maybeSingle();
     await responder(canal, v, { tipo: "texto", texto: `Este prospecto ya fue tomado por ${otro?.nombre ?? "otro vendedor"}.` });
@@ -554,7 +607,7 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
     tipo: "texto",
     texto: `Listo, el prospecto ${folio(s)} quedó asignado a usted. Le envío la tarjeta de contacto para que la guarde y los datos completos.`,
   });
-  await entregarDatos(db, canal, v, s);
+  await entregarDatos(db, canal, v, s, true);
 
   // Avisa a los demás que ya no está disponible.
   const servicio = await nombreServicio(db, s);
@@ -570,7 +623,10 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
       { nombre: PLANTILLAS_VENDEDORES.asignado, parametros: [folio(s), servicio, zona, v.nombre] },
     );
   }
-  await otraAccion(db, canal, v, [{ id: "cmd:mis", titulo: "Ver mis prospectos" }]);
+  await otraAccion(db, canal, v, [
+    { id: `conv:${s.id}`, titulo: "Ver conversación" },
+    { id: "cmd:mis", titulo: "Ver mis prospectos" },
+  ]);
 }
 
 /**
@@ -733,6 +789,17 @@ export async function procesarMensajeVendedor(
   if (id === "cmd:ventas") return enviarMisVentas(db, canal, v, ahora);
   if (accion === "mat" && a) return enviarMaterial(db, canal, v, a, ahora);
   if (id === "cmd:material") return enviarListaMaterial(db, canal, v);
+  if (accion === "conv" && a) {
+    if (await asignadoAOtro(db, canal, v, a)) return;
+    const s = await cargarSolicitud(db, a);
+    if (!s) return responder(canal, v, { tipo: "texto", texto: "No encontré ese prospecto." });
+    if (!s.vendedor_id) return responder(canal, v, await fichaResumida(db, s));
+    for (const salida of await conversacionDe(db, s)) await responder(canal, v, salida);
+    return otraAccion(db, canal, v, [
+      { id: `seg:${s.id}`, titulo: "Resultado de este" },
+      { id: "cmd:mis", titulo: "Ver mis prospectos" },
+    ]);
+  }
   if (accion === "montodespues" && a) {
     await guardarEstadoVendedor(db, v, {});
     const { data: s } = await db.from("solicitudes").select("numero").eq("id", a).maybeSingle();
@@ -902,11 +969,10 @@ const MENU_FIJO: Opcion[] = [
  * (hasta 2) y "Menú", para no tener que pasar siempre por el menú completo.
  */
 export function otraAccion(_db: DB, canal: Canal, v: Vendedor, repetir: Opcion[] = []) {
-  return responder(canal, v, {
-    tipo: "botones",
-    texto: "¿Desea hacer alguna otra acción?",
-    opciones: [...repetir.slice(0, 2), { id: "cmd:menu", titulo: "Menú" }],
-  });
+  const opciones = [...repetir.slice(0, 8), { id: "cmd:menu", titulo: "Menú" }];
+  // WhatsApp admite 3 botones; con más se manda como lista.
+  if (opciones.length > 3) return responder(canal, v, { tipo: "lista", texto: "¿Desea hacer alguna otra acción?", boton: "Ver opciones", opciones });
+  return responder(canal, v, { tipo: "botones", texto: "¿Desea hacer alguna otra acción?", opciones });
 }
 
 const SIGUIENTE_RESULTADO: Opcion[] = [
@@ -1078,6 +1144,7 @@ async function enviarFicha(db: DB, canal: Canal, v: Vendedor, solicitudId: strin
   await entregarDatos(db, canal, v, s);
   return otraAccion(db, canal, v, [
     { id: `seg:${s.id}`, titulo: "Resultado de este" },
+    { id: `conv:${s.id}`, titulo: "Ver conversación" },
     { id: "cmd:mis", titulo: "Ver otro prospecto" },
   ]);
 }
@@ -1209,7 +1276,7 @@ async function asignarPorOrden(db: DB, canal: Canal, admin: Vendedor, numero: nu
       tipo: "texto",
       texto: `${admin.nombre} le asignó el prospecto ${folio(s)} (${servicio}, ${zona}). Le envío la tarjeta de contacto y los datos completos.`,
     });
-    await entregarDatos(db, canal, destino, s);
+    await entregarDatos(db, canal, destino, s, true);
     entregado = true;
   } else {
     entregado = await enviarAVendedor(db, canal, destino, ahora, { tipo: "texto", texto: "" }, {

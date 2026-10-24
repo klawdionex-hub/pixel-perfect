@@ -48,7 +48,7 @@ type EstadoConversacion = {
   en_manos_de_vendedor: boolean;
   ultima_actividad: string;
 };
-type Filtro = "todos" | "sin_terminar" | "con_prospecto" | "clientes" | "no_interesa";
+type Filtro = "todos" | "sin_terminar" | "con_prospecto" | "clientes" | "con_interes" | "solo_saludaron" | "no_interesa";
 
 /** Lo registra el vendedor con el resultado "No le interesó". */
 const noLeInteresa = (c: Contacto) => c.nivel_interes === "no le interesó";
@@ -89,6 +89,8 @@ function PaginaContactos() {
     con_prospecto: todos.filter((c) => porContacto.get(c.id)?.length).length,
     clientes: todos.filter((c) => c.es_cliente).length,
     no_interesa: todos.filter(noLeInteresa).length,
+    con_interes: todos.filter((c) => c.nivel_interes === "alto" || c.nivel_interes === "medio").length,
+    solo_saludaron: todos.filter((c) => c.nivel_interes === "bajo").length,
   };
 
   const lista = todos.filter((c) => {
@@ -96,6 +98,8 @@ function PaginaContactos() {
     if (filtro === "con_prospecto" && !porContacto.get(c.id)?.length) return false;
     if (filtro === "clientes" && !c.es_cliente) return false;
     if (filtro === "no_interesa" && !noLeInteresa(c)) return false;
+    if (filtro === "con_interes" && c.nivel_interes !== "alto" && c.nivel_interes !== "medio") return false;
+    if (filtro === "solo_saludaron" && c.nivel_interes !== "bajo") return false;
     if (!busqueda) return true;
     const t = busqueda.toLowerCase();
     const d = busqueda.replace(/\D/g, "");
@@ -111,6 +115,8 @@ function PaginaContactos() {
     { id: "sin_terminar", texto: "No terminaron la encuesta" },
     { id: "con_prospecto", texto: "Con prospecto" },
     { id: "clientes", texto: "Clientes" },
+    { id: "con_interes", texto: "Con interés" },
+    { id: "solo_saludaron", texto: "Solo saludaron" },
     { id: "no_interesa", texto: "No les interesó" },
   ];
 
@@ -209,6 +215,7 @@ function FilaContacto({
             {c.nombre ?? "Sin nombre"}
             {c.es_cliente ? <span className="ml-2 rounded-full bg-etapa-cliente px-2 py-0.5 text-[11px] text-white">Cliente</span> : null}
             {noLeInteresa(c) ? <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">No le interesó</span> : null}
+            {c.nivel_interes === "bajo" ? <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">Solo saludó</span> : null}
           </p>
           <p className="text-xs text-muted-foreground">{telefonoBonito(c.telefono)}</p>
         </div>
