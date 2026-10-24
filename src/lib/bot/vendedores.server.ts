@@ -608,8 +608,8 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
       await responder(canal, v, { tipo: "texto", texto: `El prospecto ${folio(s)} está asignado a usted. Le envío los datos del cliente.` });
       await entregarDatos(db, canal, v, s);
       return otraAccion(db, canal, v, [
+    { id: `cmd:cotizar:${s.id}`, titulo: "Hacer cotización" },
     { id: `conv:${s.id}`, titulo: "Ver conversación" },
-    { id: "cmd:mis", titulo: "Ver mis prospectos" },
   ]);
     }
     const { data: otro } = await db.from("usuarios_perfil").select("nombre").eq("id", s.vendedor_id ?? "").maybeSingle();
@@ -637,8 +637,8 @@ async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, aho
     );
   }
   await otraAccion(db, canal, v, [
+    { id: `cmd:cotizar:${s.id}`, titulo: "Hacer cotización" },
     { id: `conv:${s.id}`, titulo: "Ver conversación" },
-    { id: "cmd:mis", titulo: "Ver mis prospectos" },
   ]);
 }
 
@@ -1157,6 +1157,7 @@ async function enviarFicha(db: DB, canal: Canal, v: Vendedor, solicitudId: strin
   await entregarDatos(db, canal, v, s);
   return otraAccion(db, canal, v, [
     { id: `seg:${s.id}`, titulo: "Resultado de este" },
+    { id: `cmd:cotizar:${s.id}`, titulo: "Hacer cotización" },
     { id: `conv:${s.id}`, titulo: "Ver conversación" },
     { id: "cmd:mis", titulo: "Ver otro prospecto" },
   ]);

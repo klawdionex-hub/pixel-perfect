@@ -599,7 +599,7 @@ await vendedor("v1", "x", `seg:${pp!.id}`);
 afirmar(log.slice(-2).some((l) => l.includes("ya tiene resultado final")) || log.at(-1)!.includes("Registrar resultado") || log.at(-1)!.includes("prospecto"), "elegir un prospecto cerrado en una lista vieja avisa");
 marca = log.length;
 await vendedor("v1", "Lo tomo", `tomar:${tablas["solicitudes"]!.find((x) => !x.vendedor_id && x.etapa === 1)?.id ?? px!.id}`);
-afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Carlos") && l.includes("Ver mis prospectos") && l.includes("Menú")), "después de Lo tomo llega el botón de Menú");
+afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Carlos") && l.includes("Hacer cotización") && l.includes("Menú")), "después de Lo tomo llega el botón de Menú");
 
 // --- Prospecto sin tomar: ficha resumida sin fotos; las fotos llegan una sola vez al tomarlo
 const sinTomarConFoto = { id: "st1", contacto_id: tablas["contactos"]![0]!.id, etapa: 1, vendedor_id: null, tomada_en: null, servicio_codigo: 3, codigo: "3-1-0999", numero: 999, datos: { medidas: "3 x 2.4 m" }, completa: true, urgente: false, fuera_de_zona: false, fuera_de_horario: false, notas: null, control_bot: {}, es_ejemplo: false, creada_en: reloj.ahora.toISOString() };
@@ -684,7 +684,10 @@ marca = log.length;
 await vendedor("v2", "Lo tomo", `tomar:${solU1.id}`);
 const tomaU1 = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana"));
 afirmar(tomaU1.some((l) => l.includes("Conversación con el bot") && l.includes("Escribió fuera de la encuesta") && l.includes("no puedo salir")), "al tomarlo llega la conversación con lo escrito fuera de la encuesta");
-afirmar(tomaU1.at(-1)!.includes("Ver conversación"), "después de tomarlo se ofrece Ver conversación");
+afirmar(tomaU1.at(-1)!.includes("Ver conversación") && tomaU1.at(-1)!.includes("Hacer cotización"), "después de tomarlo se ofrecen Hacer cotización y Ver conversación");
+await vendedor("v2", "Hacer cotización", `cmd:cotizar:${solU1.id}`);
+afirmar(log.at(-1)!.includes("Datos del cliente") && log.at(-1)!.includes("Continuar"), "Hacer cotización desde el prospecto empieza con ese cliente");
+await vendedor("v2", "cancelar");
 marca = log.length;
 await vendedor("v2", "Ver conversación", `conv:${solU1.id}`);
 afirmar(log.slice(marca).some((l) => l.includes("*Cliente*") && l.includes("Necesito que vengan")), "Ver conversación manda la conversación");

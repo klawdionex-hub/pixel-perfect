@@ -606,6 +606,11 @@ async function atender(
     await iniciarCotizacion(db, canal, v, ahora);
     return true;
   }
+  // "Hacer cotización" desde un prospecto: la cotización empieza ya con ese cliente.
+  if (id.startsWith("cmd:cotizar:")) {
+    await guardar(db, v, { paso: "cliente", desde: ahora.toISOString(), cliente: { nombre: "" }, partidas: [] });
+    return atender(db, canal, v, { opcionId: `cot:sol:${id.slice("cmd:cotizar:".length)}` }, ahora);
+  }
   const b = borradorDe(v, ahora);
   if (!b) {
     if (id.startsWith("cot:")) {
