@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "sdk_version": "3.3.0",
+  "path": "/mcp",
+  "auth": {
+    "type": "oauth",
+    "issuer": "https://trwstjcouxoinshgyvxw.supabase.co/auth/v1",
+    "require_oauth_client_claim": true,
+    "accepted_audiences": [
+      "authenticated"
+    ]
+  },
+  "mcp": {
+    "server": {
+      "name": "afpam-bot",
+      "version": "0.1.0",
+      "title": "afpam bot"
+    },
+    "tools": [
+      {
+        "name": "list_solicitudes",
+        "title": "Consultar solicitudes",
+        "description": "Consulta solicitudes recientes accesibles para el usuario, filtradas por etapa o urgencia, sin teléfonos ni conversaciones.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "etapa": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6,
+              "description": "Etapa de la solicitud, del 1 al 6."
+            },
+            "urgente": {
+              "type": "boolean",
+              "description": "Filtrar por solicitudes urgentes o no urgentes."
+            },
+            "limite": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20,
+              "description": "Máximo de solicitudes devueltas, hasta 50."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_solicitud_summary",
+        "title": "Consultar resumen de solicitud",
+        "description": "Obtiene el estado y los importes de una solicitud por su identificador, respetando los permisos del usuario.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Identificador de solicitud obtenido con list_solicitudes."
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_servicios",
+        "title": "Consultar servicios",
+        "description": "Consulta el catálogo activo de servicios de AFPAM disponible para el usuario.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "outputSchema": null
+      }
+    ]
+  }
+}
