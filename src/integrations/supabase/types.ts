@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -262,8 +262,8 @@ export type Database = {
           texto_recordatorio_cliente_1: string | null
           texto_recordatorio_cliente_2: string | null
           texto_saludo: string | null
-          textos_extra: Json
           texto_traspaso_asesor: string | null
+          textos_extra: Json
           ubicacion_maps_url: string | null
         }
         Insert: {
@@ -301,8 +301,8 @@ export type Database = {
           texto_recordatorio_cliente_1?: string | null
           texto_recordatorio_cliente_2?: string | null
           texto_saludo?: string | null
-          textos_extra?: Json
           texto_traspaso_asesor?: string | null
+          textos_extra?: Json
           ubicacion_maps_url?: string | null
         }
         Update: {
@@ -340,8 +340,8 @@ export type Database = {
           texto_recordatorio_cliente_1?: string | null
           texto_recordatorio_cliente_2?: string | null
           texto_saludo?: string | null
-          textos_extra?: Json
           texto_traspaso_asesor?: string | null
+          textos_extra?: Json
           ubicacion_maps_url?: string | null
         }
         Relationships: []
@@ -407,7 +407,7 @@ export type Database = {
           costo_total: number | null
           creada_en: string
           equipo_principal_id: string | null
-          folio: string
+          folio: string | null
           id: string
           iva: string | null
           numero: number
@@ -427,8 +427,10 @@ export type Database = {
           costo_total?: number | null
           creada_en?: string
           equipo_principal_id?: string | null
+          folio?: string | null
           id?: string
           iva?: string | null
+          numero?: never
           partidas?: Json
           pdf_url?: string | null
           proyecto?: string | null
@@ -445,8 +447,10 @@ export type Database = {
           costo_total?: number | null
           creada_en?: string
           equipo_principal_id?: string | null
+          folio?: string | null
           id?: string
           iva?: string | null
+          numero?: never
           partidas?: Json
           pdf_url?: string | null
           proyecto?: string | null
@@ -454,82 +458,104 @@ export type Database = {
           total?: number
           vendedor_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "cotizaciones_equipo_principal_id_fkey"
+            columns: ["equipo_principal_id"]
+            isOneToOne: false
+            referencedRelation: "equipos_catalogo"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_solicitud_id_fkey"
+            columns: ["solicitud_id"]
+            isOneToOne: false
+            referencedRelation: "solicitudes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cotizaciones_vendedor_id_fkey"
+            columns: ["vendedor_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios_perfil"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       equipos_catalogo: {
         Row: {
+          activo: boolean
           alimentacion: string | null
           capacidad: string | null
+          categoria: string
+          clave: string
           consumo: string | null
           costo: number | null
+          creado_en: string
+          descripcion: string | null
           dimensiones: string | null
+          fotos: Json
+          id: string
           incluye: string | null
           marca: string | null
           modelo: string | null
-          peso: string | null
-          precio: number | null
-          unidad: string
-          activo: boolean
-          categoria: string
-          clave: string
-          creado_en: string
-          descripcion: string | null
-          fotos: Json
-          id: string
           nombre: string
           notas_internas: string | null
           orden: number
+          peso: string | null
+          precio: number | null
           ultimo_uso: string | null
+          unidad: string
           usos: number
         }
         Insert: {
+          activo?: boolean
           alimentacion?: string | null
           capacidad?: string | null
+          categoria?: string
+          clave: string
           consumo?: string | null
           costo?: number | null
+          creado_en?: string
+          descripcion?: string | null
           dimensiones?: string | null
+          fotos?: Json
+          id?: string
           incluye?: string | null
           marca?: string | null
           modelo?: string | null
-          peso?: string | null
-          precio?: number | null
-          unidad?: string
-          activo?: boolean
-          categoria?: string
-          clave: string
-          creado_en?: string
-          descripcion?: string | null
-          fotos?: Json
-          id?: string
           nombre: string
           notas_internas?: string | null
           orden?: number
+          peso?: string | null
+          precio?: number | null
           ultimo_uso?: string | null
+          unidad?: string
           usos?: number
         }
         Update: {
+          activo?: boolean
           alimentacion?: string | null
           capacidad?: string | null
+          categoria?: string
+          clave?: string
           consumo?: string | null
           costo?: number | null
+          creado_en?: string
+          descripcion?: string | null
           dimensiones?: string | null
+          fotos?: Json
+          id?: string
           incluye?: string | null
           marca?: string | null
           modelo?: string | null
-          peso?: string | null
-          precio?: number | null
-          unidad?: string
-          activo?: boolean
-          categoria?: string
-          clave?: string
-          creado_en?: string
-          descripcion?: string | null
-          fotos?: Json
-          id?: string
           nombre?: string
           notas_internas?: string | null
           orden?: number
+          peso?: string | null
+          precio?: number | null
           ultimo_uso?: string | null
+          unidad?: string
           usos?: number
         }
         Relationships: []
@@ -631,7 +657,15 @@ export type Database = {
           titulo?: string
           usos?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "manual_procedimientos_manual_id_fkey"
+            columns: ["manual_id"]
+            isOneToOne: false
+            referencedRelation: "manuales"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       manuales: {
         Row: {
@@ -712,6 +746,13 @@ export type Database = {
             columns: ["material_id"]
             isOneToOne: false
             referencedRelation: "material_venta"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_uso_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios_perfil"
             referencedColumns: ["id"]
           },
         ]
@@ -1077,7 +1118,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      es_personal_activo: { Args: never; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
