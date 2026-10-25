@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { LogoAfpam } from "@/components/LogoAfpam";
+import { oauthReturnPath } from "@/lib/oauth-return-path";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
+  validateSearch: (s: Record<string, unknown>) => ({ next: oauthReturnPath(s.next) }),
   head: () => ({
     meta: [
       { title: "Inicio de sesión — AFPAM Bot" },
@@ -16,6 +18,8 @@ export const Route = createFileRoute("/auth")({
         content: "Acceso al panel de AFPAM Texcoco, Puertas Automáticas.",
       },
       { property: "og:title", content: "Inicio de sesión — AFPAM Bot" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
       {
         property: "og:description",
         content: "Acceso al panel de AFPAM Texcoco, Puertas Automáticas.",
@@ -27,6 +31,7 @@ export const Route = createFileRoute("/auth")({
 
 function PaginaAuth() {
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
   const [modo, setModo] = useState<"entrar" | "olvide">("entrar");
   const [correo, setCorreo] = useState("");
   const [password, setPassword] = useState("");
@@ -44,7 +49,8 @@ function PaginaAuth() {
       setError("No pudimos iniciar sesión. Verifique su correo y contraseña.");
       return;
     }
-    navigate({ to: "/panel", replace: true });
+    if (next !== "/") window.location.assign(next);
+    else navigate({ to: "/panel", replace: true });
   }
 
   async function pedirEnlace(e: React.FormEvent) {

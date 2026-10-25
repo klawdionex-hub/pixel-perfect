@@ -30,6 +30,8 @@ import { claves, esDePrueba, traerCampanas, traerServicios, traerSolicitudes, tr
 import { haceTiempo, horasDesde, inicioSemana, mesActualRango, moneda, TZ } from "@/lib/afpam";
 import { cabeza } from "@/lib/cabeza";
 import { cn } from "@/lib/utils";
+import { useWebMCP } from "use-webmcp-tool";
+import { runWebMCPTool } from "@/lib/webmcp-telemetry";
 
 export const Route = createFileRoute("/_authenticated/panel")({
   head: () => cabeza("Inicio", "Qué atender hoy, ventas, comisiones y prospectos de AFPAM Texcoco."),
@@ -232,6 +234,17 @@ function PaginaInicio() {
   const ventasMes = lista.filter((s) => s.etapa === 4 && (s.resultado_en ?? s.creada_en) >= inicioMes);
   const totalVendido = ventasMes.reduce((t, s) => t + Number(s.monto_venta ?? 0), 0);
   const totalComision = ventasMes.reduce((t, s) => t + Number(s.comision ?? 0), 0);
+
+  useWebMCP({
+    name: "get_panel_resumen",
+    description: "Lee los indicadores visibles de Inicio: prospectos sin tomar, prospectos de la semana, ventas y comisiones del mes; excluye pruebas como el panel.",
+    annotations: { readOnlyHint: true },
+    execute: () => runWebMCPTool("get_panel_resumen", () => {
+      if (solicitudes.isPending) return "Los indicadores todavía están cargando.";
+      if (solicitudes.isError) throw new Error("No se pudieron cargar los indicadores.");
+      return `Sin tomar: ${sinTomar.length}. Prospectos de la semana: ${deLaSemana.length}. Ventas del mes: ${moneda(totalVendido)} (${ventasMes.length}). Comisiones del mes: ${moneda(totalComision)}.`;
+    }),
+  });
 
   const pendientes: Pendiente[] = [];
   if (sinTomar.length) {
