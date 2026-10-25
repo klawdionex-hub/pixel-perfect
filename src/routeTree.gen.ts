@@ -21,6 +21,7 @@ import { Route as AuthenticatedContactosRouteImport } from './routes/_authentica
 import { Route as AuthenticatedCotizacionesRouteImport } from './routes/_authenticated/cotizaciones'
 import { Route as AuthenticatedEquiposRouteImport } from './routes/_authenticated/equipos'
 import { Route as AuthenticatedExportarRouteImport } from './routes/_authenticated/exportar'
+import { Route as AuthenticatedManualesRouteImport } from './routes/_authenticated/manuales'
 import { Route as AuthenticatedPanelRouteImport } from './routes/_authenticated/panel'
 import { Route as AuthenticatedPlantillasRouteImport } from './routes/_authenticated/plantillas'
 import { Route as AuthenticatedPreguntasRouteImport } from './routes/_authenticated/preguntas'
@@ -92,6 +93,11 @@ const AuthenticatedExportarRoute = AuthenticatedExportarRouteImport.update({
   path: '/exportar',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedManualesRoute = AuthenticatedManualesRouteImport.update({
+  id: '/manuales',
+  path: '/manuales',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPanelRoute = AuthenticatedPanelRouteImport.update({
   id: '/panel',
   path: '/panel',
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/cotizaciones': typeof AuthenticatedCotizacionesRoute
   '/equipos': typeof AuthenticatedEquiposRoute
   '/exportar': typeof AuthenticatedExportarRoute
+  '/manuales': typeof AuthenticatedManualesRoute
   '/panel': typeof AuthenticatedPanelRoute
   '/plantillas': typeof AuthenticatedPlantillasRoute
   '/preguntas': typeof AuthenticatedPreguntasRoute
@@ -174,6 +181,7 @@ export interface FileRoutesByTo {
   '/cotizaciones': typeof AuthenticatedCotizacionesRoute
   '/equipos': typeof AuthenticatedEquiposRoute
   '/exportar': typeof AuthenticatedExportarRoute
+  '/manuales': typeof AuthenticatedManualesRoute
   '/panel': typeof AuthenticatedPanelRoute
   '/plantillas': typeof AuthenticatedPlantillasRoute
   '/preguntas': typeof AuthenticatedPreguntasRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/_authenticated/cotizaciones': typeof AuthenticatedCotizacionesRoute
   '/_authenticated/equipos': typeof AuthenticatedEquiposRoute
   '/_authenticated/exportar': typeof AuthenticatedExportarRoute
+  '/_authenticated/manuales': typeof AuthenticatedManualesRoute
   '/_authenticated/panel': typeof AuthenticatedPanelRoute
   '/_authenticated/plantillas': typeof AuthenticatedPlantillasRoute
   '/_authenticated/preguntas': typeof AuthenticatedPreguntasRoute
@@ -222,6 +231,7 @@ export interface FileRouteTypes {
     | '/cotizaciones'
     | '/equipos'
     | '/exportar'
+    | '/manuales'
     | '/panel'
     | '/plantillas'
     | '/preguntas'
@@ -244,6 +254,7 @@ export interface FileRouteTypes {
     | '/cotizaciones'
     | '/equipos'
     | '/exportar'
+    | '/manuales'
     | '/panel'
     | '/plantillas'
     | '/preguntas'
@@ -267,6 +278,7 @@ export interface FileRouteTypes {
     | '/_authenticated/cotizaciones'
     | '/_authenticated/equipos'
     | '/_authenticated/exportar'
+    | '/_authenticated/manuales'
     | '/_authenticated/panel'
     | '/_authenticated/plantillas'
     | '/_authenticated/preguntas'
@@ -374,6 +386,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedExportarRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/manuales': {
+      id: '/_authenticated/manuales'
+      path: '/manuales'
+      fullPath: '/manuales'
+      preLoaderRoute: typeof AuthenticatedManualesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/panel': {
       id: '/_authenticated/panel'
       path: '/panel'
@@ -448,6 +467,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedCotizacionesRoute: typeof AuthenticatedCotizacionesRoute
   AuthenticatedEquiposRoute: typeof AuthenticatedEquiposRoute
   AuthenticatedExportarRoute: typeof AuthenticatedExportarRoute
+  AuthenticatedManualesRoute: typeof AuthenticatedManualesRoute
   AuthenticatedPanelRoute: typeof AuthenticatedPanelRoute
   AuthenticatedPlantillasRoute: typeof AuthenticatedPlantillasRoute
   AuthenticatedPreguntasRoute: typeof AuthenticatedPreguntasRoute
@@ -465,6 +485,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCotizacionesRoute: AuthenticatedCotizacionesRoute,
   AuthenticatedEquiposRoute: AuthenticatedEquiposRoute,
   AuthenticatedExportarRoute: AuthenticatedExportarRoute,
+  AuthenticatedManualesRoute: AuthenticatedManualesRoute,
   AuthenticatedPanelRoute: AuthenticatedPanelRoute,
   AuthenticatedPlantillasRoute: AuthenticatedPlantillasRoute,
   AuthenticatedPreguntasRoute: AuthenticatedPreguntasRoute,

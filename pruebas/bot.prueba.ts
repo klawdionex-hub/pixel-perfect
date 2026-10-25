@@ -2,6 +2,7 @@
 import { pasarContactoAVendedores, procesarMensajeCliente, procesarRecordatorios, type Canal } from "@/lib/bot/motor.server";
 import { procesarMensajeVendedor, nombreTarjeta, tareasVendedores } from "@/lib/bot/vendedores.server";
 import { textoDeSalida, type Salida } from "@/lib/bot/salida";
+import { PDFDocument } from "pdf-lib";
 import { crearBD } from "./bd-falsa";
 
 const servicios = ["Abatible hacia afuera", "Abatible hacia adentro", "Elevadizo con paneles tipo americano", "Corredizo", "Plegadizas", "De maroma", "Cortina eléctrica", "Reparación", "Mantenimiento", "Compra de equipo"].map(
@@ -696,6 +697,40 @@ afirmar(log.slice(marca).some((l) => l.includes("*Cliente*") && l.includes("Nece
 afirmar(nombreTarjeta({ numero: 45, codigo: "3-1-0045", contactos: { nombre: "Juan Pérez", municipio: "Texcoco, San Lorenzo" } }) === "Juan Pérez · Texcoco, San Lorenzo", "tarjeta: nombre y colonia");
 afirmar(nombreTarjeta({ numero: 45, codigo: "3-1-0045", contactos: { nombre: "no", municipio: "Chalco" } }) === "Cliente 0045 · Chalco", "tarjeta sin nombre válido: Cliente y número");
 afirmar(nombreTarjeta({ numero: 7, codigo: "3-1-0007", contactos: { nombre: null, municipio: null } }) === "Cliente 0007", "tarjeta sin nombre ni colonia");
+
+// --- Manuales técnicos
+{
+  const pdf = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) pdf.addPage([200, 200]);
+  const pdfUrl = `data:application/pdf;base64,${Buffer.from(await pdf.save()).toString("base64")}`;
+  tablas["manuales"] = [
+    { id: "man1", tipo: "Pistones", marca: "Marca X", modelo: "Modelo 300", frecuencia: "433.92 MHz", tipo_codigo: "código variable", pdf_url: pdfUrl, pdf_nombre: "manual-300.pdf", paginas: 3, estado: "publicado", usos: 0 },
+    { id: "man2", tipo: "Pistones", marca: "Marca Y", modelo: "Borrador", pdf_url: pdfUrl, estado: "borrador", usos: 0 },
+  ];
+  tablas["manual_procedimientos"] = [
+    { id: "pr1", manual_id: "man1", clave: "programar_controles", titulo: "Programar controles", pasos: "Abra la tapa\nPresione LEARN 2 segundos\nPresione el botón del control", pagina_inicio: 2, pagina_fin: 3, paginas_url: null, activo: true, orden: 1, usos: 0 },
+    { id: "pr2", manual_id: "man1", clave: "codigos_error", titulo: "Códigos de error", pasos: "1 parpadeo: fotocelda", pagina_inicio: 3, pagina_fin: 3, activo: false, orden: 2, usos: 0 },
+  ];
+  marca = log.length;
+  await vendedor("v2", "COMANDOS");
+  afirmar(log.slice(marca).some((l) => l.includes("Manuales técnicos")), "el menú trae Manuales técnicos");
+  await vendedor("v2", "Manuales técnicos", "cmd:manuales");
+  afirmar(log.at(-1)!.includes("Marca X · Modelo 300") && !log.at(-1)!.includes("Borrador"), "solo aparecen los manuales publicados");
+  await vendedor("v2", "Marca X · Modelo 300", "man:m:man1");
+  afirmar(log.at(-1)!.includes("Programar controles") && !log.at(-1)!.includes("Códigos de error") && log.at(-1)!.includes("PDF completo") && log.at(-1)!.includes("433.92 MHz"), "procedimientos activos, frecuencia y PDF completo");
+  await vendedor("v2", "Programar controles", "man:p:pr1");
+  afirmar(log.some((l) => l.includes("1. Abra la tapa") && l.includes("2. Presione LEARN 2 segundos") && l.includes("Página 2–3")), "manda los pasos numerados con la página");
+  afirmar(log.at(-1)!.includes("Ver página del manual") && log.at(-1)!.includes("Otro procedimiento"), "ofrece ver la página y otro procedimiento");
+  marca = log.length;
+  await vendedor("v2", "Ver página del manual", "man:pag:pr1");
+  const recorte = Object.entries(archivos).find(([r]) => r === "manuales/paginas/pr1.pdf");
+  const paginasRecorte = recorte ? (await PDFDocument.load(recorte[1])).getPageCount() : 0;
+  afirmar(paginasRecorte === 2 && log.slice(marca).some((l) => l.includes("[Documento: Marca X  Modelo 300 pag 2-3.pdf]") || l.includes("pag 2-3")), `manda solo las páginas del procedimiento (${paginasRecorte})`);
+  await vendedor("v2", "PDF completo", "man:pdf:man1");
+  afirmar(log.slice(-2)[0]!.includes("[Documento: manual-300.pdf]"), "manda el PDF completo");
+  await vendedor("v2", "manual modelo 300");
+  afirmar(log.at(-1)!.includes("Programar controles"), "búsqueda escrita: manual modelo 300");
+}
 
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

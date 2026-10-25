@@ -588,6 +588,105 @@ export type Database = {
           },
         ]
       }
+      manual_procedimientos: {
+        Row: {
+          activo: boolean
+          clave: string | null
+          creado_en: string
+          id: string
+          manual_id: string
+          orden: number
+          pagina_fin: number | null
+          pagina_inicio: number | null
+          paginas_url: string | null
+          pasos: string
+          titulo: string
+          usos: number
+        }
+        Insert: {
+          activo?: boolean
+          clave?: string | null
+          creado_en?: string
+          id?: string
+          manual_id: string
+          orden?: number
+          pagina_fin?: number | null
+          pagina_inicio?: number | null
+          paginas_url?: string | null
+          pasos?: string
+          titulo: string
+          usos?: number
+        }
+        Update: {
+          activo?: boolean
+          clave?: string | null
+          creado_en?: string
+          id?: string
+          manual_id?: string
+          orden?: number
+          pagina_fin?: number | null
+          pagina_inicio?: number | null
+          paginas_url?: string | null
+          pasos?: string
+          titulo?: string
+          usos?: number
+        }
+        Relationships: []
+      }
+      manuales: {
+        Row: {
+          actualizado_en: string
+          creado_en: string
+          error: string | null
+          estado: string
+          frecuencia: string | null
+          id: string
+          marca: string | null
+          modelo: string | null
+          notas: string | null
+          paginas: number | null
+          pdf_nombre: string | null
+          pdf_url: string
+          tipo: string
+          tipo_codigo: string | null
+          usos: number
+        }
+        Insert: {
+          actualizado_en?: string
+          creado_en?: string
+          error?: string | null
+          estado?: string
+          frecuencia?: string | null
+          id?: string
+          marca?: string | null
+          modelo?: string | null
+          notas?: string | null
+          paginas?: number | null
+          pdf_nombre?: string | null
+          pdf_url: string
+          tipo?: string
+          tipo_codigo?: string | null
+          usos?: number
+        }
+        Update: {
+          actualizado_en?: string
+          creado_en?: string
+          error?: string | null
+          estado?: string
+          frecuencia?: string | null
+          id?: string
+          marca?: string | null
+          modelo?: string | null
+          notas?: string | null
+          paginas?: number | null
+          pdf_nombre?: string | null
+          pdf_url?: string
+          tipo?: string
+          tipo_codigo?: string | null
+          usos?: number
+        }
+        Relationships: []
+      }
       material_uso: {
         Row: {
           creado_en: string

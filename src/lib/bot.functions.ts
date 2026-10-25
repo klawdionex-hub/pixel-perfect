@@ -270,3 +270,53 @@ export const dolarDelDia = createServerFn({ method: "POST" })
     const { actualizarDolar } = await import("@/lib/cotizaciones/dolar.server");
     return { ok: await actualizarDolar(context.supabase, new Date(), !!data.forzar) };
   });
+
+/**
+ * Manuales técnicos: lee con IA el texto de un manual ya subido (las páginas se extraen en el navegador)
+ * y guarda los procedimientos encontrados como borrador para que el usuario los revise.
+ */
+export const analizarManual = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ manualId: z.string().uuid(), paginas: z.array(z.string().max(20000)).max(400) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { leerManualConIA } = await import("@/lib/ia.server");
+    const { validarLectura } = await import("@/lib/manuales/datos");
+    const db = context.supabase;
+    await db.from("manuales").update({ estado: "leyendo", error: null, paginas: data.paginas.length }).eq("id", data.manualId);
+    try {
+      const lectura = validarLectura(await leerManualConIA(data.paginas), data.paginas.length);
+      const { data: actual } = await db.from("manuales").select("marca, modelo, frecuencia, tipo_codigo").eq("id", data.manualId).single();
+      await db
+        .from("manuales")
+        .update({
+          estado: "borrador",
+          tipo: lectura.tipo,
+          // Lo que el usuario ya haya escrito no se pisa.
+          marca: actual?.marca || lectura.marca,
+          modelo: actual?.modelo || lectura.modelo,
+          frecuencia: actual?.frecuencia || lectura.frecuencia,
+          tipo_codigo: actual?.tipo_codigo || lectura.tipo_codigo,
+          actualizado_en: new Date().toISOString(),
+        })
+        .eq("id", data.manualId);
+      await db.from("manual_procedimientos").delete().eq("manual_id", data.manualId);
+      if (lectura.procedimientos.length) {
+        await db.from("manual_procedimientos").insert(
+          lectura.procedimientos.map((p, i) => ({
+            manual_id: data.manualId,
+            clave: p.clave,
+            titulo: p.titulo,
+            pasos: p.pasos.join("\n"),
+            pagina_inicio: p.pagina_inicio,
+            pagina_fin: p.pagina_fin,
+            orden: i + 1,
+          })),
+        );
+      }
+      return { ok: true as const, procedimientos: lectura.procedimientos.length };
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      await db.from("manuales").update({ estado: "error", error }).eq("id", data.manualId);
+      return { ok: false as const, error };
+    }
+  });

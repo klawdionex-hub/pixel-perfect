@@ -17,6 +17,7 @@ import {
   SquareTerminal,
   Package,
   Receipt,
+  BookOpen,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { LogoAfpam } from "@/components/LogoAfpam";
@@ -33,6 +34,7 @@ const NAV = [
   { to: "/comandos", texto: "Comandos", icono: SquareTerminal },
   { to: "/equipos", texto: "Catálogo de equipos", icono: Package },
   { to: "/cotizaciones", texto: "Cotizaciones", icono: Receipt },
+  { to: "/manuales", texto: "Manuales técnicos", icono: BookOpen },
   { to: "/plantillas", texto: "Plantillas", icono: FileText },
   { to: "/preguntas", texto: "Preguntas frecuentes", icono: MessageCircleQuestion },
   { to: "/configuracion", texto: "Configuración del bot", icono: Settings },

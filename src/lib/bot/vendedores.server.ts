@@ -8,6 +8,7 @@ import type { Canal } from "./motor.server";
 import type { Opcion, Salida } from "./salida";
 import { atenderCotizacion, cotizacionEnCurso, pausarCotizacion } from "./cotizar.server";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria, pieDeFoto } from "./equipos";
+import { buscarManual, enviarManualesDeTipo, enviarPaginas, enviarPdfManual, enviarProcedimiento, enviarProcedimientos, enviarTiposManual } from "./manuales.server";
 import { enHorarioLaboral } from "./textos";
 
 type DB = SupabaseClient<Database>;
@@ -802,6 +803,14 @@ export async function procesarMensajeVendedor(
   if (id === "cmd:ventas") return enviarMisVentas(db, canal, v, ahora);
   if (accion === "mat" && a) return enviarMaterial(db, canal, v, a, ahora);
   if (id === "cmd:material") return enviarListaMaterial(db, canal, v);
+  if (id === "cmd:manuales") return enviarTiposManual(db, canal, v);
+  if (accion === "man" && a && b) {
+    if (a === "t") return enviarManualesDeTipo(db, canal, v, Number(b));
+    if (a === "m") return enviarProcedimientos(db, canal, v, b);
+    if (a === "p") return enviarProcedimiento(db, canal, v, b);
+    if (a === "pag") return enviarPaginas(db, canal, v, b);
+    if (a === "pdf") return enviarPdfManual(db, canal, v, b);
+  }
   if (accion === "conv" && a) {
     if (await asignadoAOtro(db, canal, v, a)) return;
     const s = await cargarSolicitud(db, a);
@@ -866,6 +875,8 @@ export async function procesarMensajeVendedor(
   if (/^ver la lista$/i.test(texto)) return enviarSinAsignar(db, canal, v);
 
   // Solo la palabra COMANDOS abre el menú.
+  const pideManual = /^manual(?:es)?\s+(.{2,60})$/i.exec(texto);
+  if (pideManual && !cotizacionEnCurso(v, ahora)) return buscarManual(db, canal, v, pideManual[1]!);
   if (/^#?\s*comandos?[.!]?$/i.test(texto)) {
     await pausarCotizacion(db, v, ahora);
     await olvidarVarios(db, v);
@@ -974,6 +985,7 @@ const MENU_FIJO: Opcion[] = [
   { id: "cmd:ventas", titulo: "Ventas y comisión", descripcion: "Del mes en curso", seccion: "Mis ventas" },
   { id: "cmd:catalogo", titulo: "Catálogo de equipos", descripcion: "Fotos para enviar al cliente", seccion: "Catálogo" },
   { id: "cmd:cotizar", titulo: "Hacer cotización", descripcion: "PDF con la plantilla de AFPAM", seccion: "Catálogo" },
+  { id: "cmd:manuales", titulo: "Manuales técnicos", descripcion: "Programar controles, carrera, clonar…", seccion: "Técnico" },
 ];
 
 /** Menú principal (o la segunda página de material con "mas"). Una lista de WhatsApp admite 10 filas. */
