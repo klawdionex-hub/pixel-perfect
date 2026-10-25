@@ -12,8 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as McpRouteImport } from './routes/mcp'
 import { Route as PrivacidadRouteImport } from './routes/privacidad'
 import { Route as RestablecerRouteImport } from './routes/restablecer'
+import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
 import { Route as AuthenticatedCampanasRouteImport } from './routes/_authenticated/campanas'
 import { Route as AuthenticatedComandosRouteImport } from './routes/_authenticated/comandos'
 import { Route as AuthenticatedConfiguracionRouteImport } from './routes/_authenticated/configuracion'
@@ -28,6 +30,7 @@ import { Route as AuthenticatedPreguntasRouteImport } from './routes/_authentica
 import { Route as AuthenticatedSolicitudesRouteImport } from './routes/_authenticated/solicitudes'
 import { Route as AuthenticatedUsuariosRouteImport } from './routes/_authenticated/usuarios'
 import { Route as AuthenticatedVendedoresRouteImport } from './routes/_authenticated/vendedores'
+import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 import { Route as AuthenticatedSolicitudIdRouteImport } from './routes/_authenticated/solicitud.$id'
 import { Route as ApiCronBotRouteImport } from './routes/api/cron/bot'
 import { Route as ApiWhatsappWebhookRouteImport } from './routes/api/whatsapp/webhook'
@@ -46,6 +49,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PrivacidadRoute = PrivacidadRouteImport.update({
   id: '/privacidad',
   path: '/privacidad',
@@ -56,6 +64,12 @@ const RestablecerRoute = RestablecerRouteImport.update({
   path: '/restablecer',
   getParentRoute: () => rootRouteImport,
 } as any)
+const Char91DotwellKnownChar93OauthProtectedResourceRoute =
+  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
+    id: '/.well-known/oauth-protected-resource',
+    path: '/.well-known/oauth-protected-resource',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const AuthenticatedCampanasRoute = AuthenticatedCampanasRouteImport.update({
   id: '/campanas',
   path: '/campanas',
@@ -129,6 +143,11 @@ const AuthenticatedVendedoresRoute = AuthenticatedVendedoresRouteImport.update({
   path: '/vendedores',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
+  id: '/.lovable/oauth/consent',
+  path: '/.lovable/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedSolicitudIdRoute =
   AuthenticatedSolicitudIdRouteImport.update({
     id: '/solicitud/$id',
@@ -149,8 +168,10 @@ const ApiWhatsappWebhookRoute = ApiWhatsappWebhookRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/mcp': typeof McpRoute
   '/privacidad': typeof PrivacidadRoute
   '/restablecer': typeof RestablecerRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/campanas': typeof AuthenticatedCampanasRoute
   '/comandos': typeof AuthenticatedComandosRoute
   '/configuracion': typeof AuthenticatedConfiguracionRoute
@@ -165,6 +186,7 @@ export interface FileRoutesByFullPath {
   '/solicitudes': typeof AuthenticatedSolicitudesRoute
   '/usuarios': typeof AuthenticatedUsuariosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
   '/api/cron/bot': typeof ApiCronBotRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
@@ -172,8 +194,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/mcp': typeof McpRoute
   '/privacidad': typeof PrivacidadRoute
   '/restablecer': typeof RestablecerRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/campanas': typeof AuthenticatedCampanasRoute
   '/comandos': typeof AuthenticatedComandosRoute
   '/configuracion': typeof AuthenticatedConfiguracionRoute
@@ -188,6 +212,7 @@ export interface FileRoutesByTo {
   '/solicitudes': typeof AuthenticatedSolicitudesRoute
   '/usuarios': typeof AuthenticatedUsuariosRoute
   '/vendedores': typeof AuthenticatedVendedoresRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
   '/api/cron/bot': typeof ApiCronBotRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
@@ -197,8 +222,10 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/mcp': typeof McpRoute
   '/privacidad': typeof PrivacidadRoute
   '/restablecer': typeof RestablecerRoute
+  '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
   '/_authenticated/campanas': typeof AuthenticatedCampanasRoute
   '/_authenticated/comandos': typeof AuthenticatedComandosRoute
   '/_authenticated/configuracion': typeof AuthenticatedConfiguracionRoute
@@ -213,6 +240,7 @@ export interface FileRoutesById {
   '/_authenticated/solicitudes': typeof AuthenticatedSolicitudesRoute
   '/_authenticated/usuarios': typeof AuthenticatedUsuariosRoute
   '/_authenticated/vendedores': typeof AuthenticatedVendedoresRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/_authenticated/solicitud/$id': typeof AuthenticatedSolicitudIdRoute
   '/api/cron/bot': typeof ApiCronBotRoute
   '/api/whatsapp/webhook': typeof ApiWhatsappWebhookRoute
@@ -222,8 +250,10 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/mcp'
     | '/privacidad'
     | '/restablecer'
+    | '/.well-known/oauth-protected-resource'
     | '/campanas'
     | '/comandos'
     | '/configuracion'
@@ -238,6 +268,7 @@ export interface FileRouteTypes {
     | '/solicitudes'
     | '/usuarios'
     | '/vendedores'
+    | '/.lovable/oauth/consent'
     | '/solicitud/$id'
     | '/api/cron/bot'
     | '/api/whatsapp/webhook'
@@ -245,8 +276,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/mcp'
     | '/privacidad'
     | '/restablecer'
+    | '/.well-known/oauth-protected-resource'
     | '/campanas'
     | '/comandos'
     | '/configuracion'
@@ -261,6 +294,7 @@ export interface FileRouteTypes {
     | '/solicitudes'
     | '/usuarios'
     | '/vendedores'
+    | '/.lovable/oauth/consent'
     | '/solicitud/$id'
     | '/api/cron/bot'
     | '/api/whatsapp/webhook'
@@ -269,8 +303,10 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/mcp'
     | '/privacidad'
     | '/restablecer'
+    | '/.well-known/oauth-protected-resource'
     | '/_authenticated/campanas'
     | '/_authenticated/comandos'
     | '/_authenticated/configuracion'
@@ -285,6 +321,7 @@ export interface FileRouteTypes {
     | '/_authenticated/solicitudes'
     | '/_authenticated/usuarios'
     | '/_authenticated/vendedores'
+    | '/.lovable/oauth/consent'
     | '/_authenticated/solicitud/$id'
     | '/api/cron/bot'
     | '/api/whatsapp/webhook'
@@ -294,8 +331,11 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  McpRoute: typeof McpRoute
   PrivacidadRoute: typeof PrivacidadRoute
   RestablecerRoute: typeof RestablecerRoute
+  Char91DotwellKnownChar93OauthProtectedResourceRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   ApiCronBotRoute: typeof ApiCronBotRoute
   ApiWhatsappWebhookRoute: typeof ApiWhatsappWebhookRoute
 }
@@ -323,6 +363,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/privacidad': {
       id: '/privacidad'
       path: '/privacidad'
@@ -335,6 +382,13 @@ declare module '@tanstack/react-router' {
       path: '/restablecer'
       fullPath: '/restablecer'
       preLoaderRoute: typeof RestablecerRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.well-known/oauth-protected-resource': {
+      id: '/.well-known/oauth-protected-resource'
+      path: '/.well-known/oauth-protected-resource'
+      fullPath: '/.well-known/oauth-protected-resource'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/campanas': {
@@ -435,6 +489,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedVendedoresRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/.lovable/oauth/consent': {
+      id: '/.lovable/oauth/consent'
+      path: '/.lovable/oauth/consent'
+      fullPath: '/.lovable/oauth/consent'
+      preLoaderRoute: typeof DotlovableOauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/solicitud/$id': {
       id: '/_authenticated/solicitud/$id'
       path: '/solicitud/$id'
@@ -502,8 +563,12 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  McpRoute: McpRoute,
   PrivacidadRoute: PrivacidadRoute,
   RestablecerRoute: RestablecerRoute,
+  Char91DotwellKnownChar93OauthProtectedResourceRoute:
+    Char91DotwellKnownChar93OauthProtectedResourceRoute,
+  DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   ApiCronBotRoute: ApiCronBotRoute,
   ApiWhatsappWebhookRoute: ApiWhatsappWebhookRoute,
 }
