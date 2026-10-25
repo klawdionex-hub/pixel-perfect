@@ -516,7 +516,7 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
     }
   }
   const bytes = await generarPdfCotizacion({
-    folio: cot.folio,
+    folio: cot.folio ?? "COT",
     fecha: ahora,
     empresa,
     atiende: v.nombre,

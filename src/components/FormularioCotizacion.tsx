@@ -241,8 +241,10 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
         .select("id, folio")
         .single();
       if (e1 || !cot) throw new Error(e1?.message ?? "No se pudo guardar.");
-      const bytes = await armarPdf(cot.folio);
-      const ruta = `cotizaciones/${cot.folio}-${crypto.randomUUID().slice(0, 8)}.pdf`;
+      // La base calcula el folio (COT-0001); por si no llegara, se usa uno provisional.
+      const folioCot = cot.folio ?? "COT";
+      const bytes = await armarPdf(folioCot);
+      const ruta = `cotizaciones/${folioCot}-${crypto.randomUUID().slice(0, 8)}.pdf`;
       const { error: e2 } = await supabase.storage.from("media").upload(ruta, bytes, { contentType: "application/pdf" });
       if (e2) throw new Error(e2.message);
       const url = supabase.storage.from("media").getPublicUrl(ruta).data.publicUrl;
@@ -250,7 +252,7 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
       if (solicitudId) await supabase.from("solicitudes").update({ etapa: 2 }).eq("id", solicitudId).eq("etapa", 1);
       const sinCosto = partidas.filter((p) => p.costo == null).length;
       setResultado({
-        folio: cot.folio,
+        folio: folioCot,
         url,
         bytes,
         aviso:
@@ -260,7 +262,7 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
       });
       qc.invalidateQueries({ queryKey: ["cotizaciones"] });
       qc.invalidateQueries({ queryKey: claves.solicitudes });
-      toast.success(`Cotización ${cot.folio} lista`);
+      toast.success(`Cotización ${folioCot} lista`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo generar la cotización.");
     } finally {

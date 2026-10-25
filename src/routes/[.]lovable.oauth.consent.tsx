@@ -8,7 +8,7 @@ import { cabeza } from "@/lib/cabeza";
 export const Route = createFileRoute("/.lovable/oauth/consent")({
   ssr: false,
   head: () => cabeza("Conectar agente", "Autorice a un agente a consultar AFPAM Bot con los permisos de su cuenta."),
-  validateSearch: (s: Record<string, unknown>) => ({ authorization_id: typeof s.authorization_id === "string" ? s.authorization_id : "" }),
+  validateSearch: (s: Record<string, unknown>) => ({ authorization_id: typeof s["authorization_id"] === "string" ? s["authorization_id"] : "" }),
   beforeLoad: async ({ search, location }) => {
     if (!search.authorization_id) throw new Error("Falta la solicitud de autorización. Inicie de nuevo la conexión desde su agente.");
     const { data, error } = await supabase.auth.getSession();

@@ -76,7 +76,7 @@ function PaginaRestablecer() {
               <p className="text-sm text-muted-foreground">
                 El enlace no es válido o ya venció. Pida uno nuevo desde la página de inicio de sesión.
               </p>
-              <Button className="w-full" onClick={() => navigate({ to: "/auth" })}>
+              <Button className="w-full" onClick={() => navigate({ to: "/auth", search: { next: "/" } })}>
                 Ir a iniciar sesión
               </Button>
             </>
