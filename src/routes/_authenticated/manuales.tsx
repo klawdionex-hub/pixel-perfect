@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowDown, ArrowUp, FileText, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, FileText, Plus, RefreshCw, Search, Trash2, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { EncabezadoPagina } from "@/components/AppLayout";
@@ -48,7 +48,11 @@ type Proc = {
   activo: boolean;
   orden: number;
   usos?: number;
+  /** Solo en pantalla: identifica los procedimientos nuevos que aún no se guardan. */
+  llave?: string;
 };
+type ModoLectura = "todo" | "faltantes";
+const llaveDe = (p: Proc) => p.id ?? p.llave ?? "";
 
 const CLAVE = ["manuales"];
 
@@ -110,20 +114,27 @@ function Pagina() {
     void qc.invalidateQueries({ queryKey: ["manual_procedimientos"] });
   };
 
-  /** Lee el PDF con la IA y deja los procedimientos como borrador. */
-  async function leer(manualId: string, datos: ArrayBuffer) {
+  /**
+   * Lee el PDF con la IA. "todo" reemplaza los procedimientos; "faltantes" conserva lo que hay
+   * y solo busca los agregados vacíos (o, si no hay, los que faltan).
+   */
+  async function leer(manualId: string, datos: ArrayBuffer, modo: ModoLectura = "todo") {
     setProgreso("Leyendo el PDF…");
     try {
       const paginas = await extraerTexto(datos, (i, n) => setProgreso(`Leyendo la página ${i} de ${n}…`));
       if (paginas.join("").length < 300) {
-        await supabase.from("manuales").update({ estado: "error", error: "El PDF casi no tiene texto (¿es escaneado?). Por ahora solo se leen PDF digitales." }).eq("id", manualId);
+        if (modo === "todo") {
+          await supabase.from("manuales").update({ estado: "error", error: "El PDF casi no tiene texto (¿es escaneado?). Por ahora solo se leen PDF digitales." }).eq("id", manualId);
+        }
         toast.error("El PDF casi no tiene texto. Por ahora solo se leen PDF digitales.");
         return;
       }
       setProgreso("La inteligencia artificial está buscando los procedimientos… (puede tardar un minuto)");
-      const r = await analizar({ data: { manualId, paginas } });
-      if (r.ok) toast.success(`Listo: se encontraron ${r.procedimientos} procedimiento(s). Revíselos y publique.`);
-      else toast.error(r.error, { duration: 12000 });
+      const r = await analizar({ data: { manualId, paginas, modo } });
+      if (!r.ok) toast.error(r.error, { duration: 12000 });
+      else if (modo === "todo") toast.success(`Listo: se encontraron ${r.procedimientos} procedimiento(s). Revíselos y publique.`);
+      else if (r.procedimientos) toast.success(`Se encontró: ${r.encontrados.join(", ")}. Revíselo antes de publicarlo.`, { duration: 10000 });
+      else toast.info("La IA no encontró en el manual ningún procedimiento que falte.", { duration: 10000 });
       setAbierto(manualId);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo leer el manual.");
@@ -208,10 +219,11 @@ function Pagina() {
                   <Editor
                     manual={m}
                     ocupado={!!progreso}
-                    alReleer={async () => {
+                    alReleer={async (modo) => {
                       const r = await fetch(m.pdf_url);
-                      await leer(m.id, await r.arrayBuffer());
+                      await leer(m.id, await r.arrayBuffer(), modo);
                     }}
+                    alOcultar={() => setAbierto(null)}
                     alCambiar={recargar}
                     alBorrar={() => {
                       setAbierto(null);
@@ -232,12 +244,14 @@ function Editor({
   manual,
   ocupado,
   alReleer,
+  alOcultar,
   alCambiar,
   alBorrar,
 }: {
   manual: Manual;
   ocupado: boolean;
-  alReleer: () => Promise<void>;
+  alReleer: (modo: ModoLectura) => Promise<void>;
+  alOcultar: () => void;
   alCambiar: () => void;
   alBorrar: () => void;
 }) {
@@ -253,6 +267,15 @@ function Editor({
   const [procs, setProcs] = useState<Proc[]>([]);
   const [borrados, setBorrados] = useState<string[]>([]);
   const [guardando, setGuardando] = useState(false);
+  /** Procedimientos desplegados; todos empiezan cerrados para que la lista no estorbe. */
+  const [desplegados, setDesplegados] = useState<Set<string>>(new Set());
+  const alternar = (k: string) =>
+    setDesplegados((d) => {
+      const n = new Set(d);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
   useEffect(() => {
     if (procsQ.data) {
       setProcs(procsQ.data);
@@ -272,7 +295,7 @@ function Editor({
       return n;
     });
 
-  async function guardar(estado?: string) {
+  async function guardar(estado?: string, callado = false): Promise<boolean> {
     setGuardando(true);
     const limpio = (t: string) => t.trim() || null;
     const { error } = await supabase
@@ -305,11 +328,28 @@ function Editor({
       else await supabase.from("manual_procedimientos").insert(fila);
     }
     setGuardando(false);
-    if (error) return void toast.error(error.message);
-    toast.success(estado === "publicado" ? "Publicado: los vendedores ya lo ven en el bot" : estado === "borrador" ? "Quitado del bot" : "Cambios guardados");
+    if (error) {
+      toast.error(error.message);
+      return false;
+    }
+    if (!callado) toast.success(estado === "publicado" ? "Publicado: los vendedores ya lo ven en el bot" : estado === "borrador" ? "Quitado del bot" : "Cambios guardados");
     alCambiar();
     void procsQ.refetch();
+    return true;
   }
+
+  /** Guarda primero (para que lo agregado exista) y luego la IA busca solo lo que falta. */
+  async function buscarFaltantes() {
+    if (!(await guardar(undefined, true))) return;
+    await alReleer("faltantes");
+  }
+
+  async function leerTodo() {
+    if (!confirm("La IA leerá el manual completo y REEMPLAZARÁ todos los procedimientos, incluidos los que ya revisó. ¿Continuar?")) return;
+    await alReleer("todo");
+  }
+
+  const vacios = procs.filter((p) => !p.pasos.trim()).length;
 
   async function borrar() {
     if (!confirm(`¿Borrar el manual "${nombreManual(manual)}" y sus procedimientos? Esta acción no se puede deshacer.`)) return;
@@ -323,6 +363,11 @@ function Editor({
 
   return (
     <div className="space-y-5 border-t border-border bg-background px-4 py-5">
+      <div className="flex justify-end">
+        <Button variant="ghost" size="sm" onClick={alOcultar}>
+          <ChevronDown className="mr-1 h-4 w-4 rotate-180" /> Ocultar
+        </Button>
+      </div>
       {manual.estado === "error" && manual.error ? <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{manual.error}</p> : null}
       {manual.estado === "leyendo" ? <p className="text-sm text-muted-foreground">La inteligencia artificial está leyendo el manual…</p> : null}
 
@@ -356,50 +401,86 @@ function Editor({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">Procedimientos que verá el vendedor</h3>
-          <span className="text-xs text-muted-foreground">Un paso por renglón. Apague los que no quiera mostrar.</span>
+          <span className="flex items-center gap-3 text-xs text-muted-foreground">
+            Haga clic en un procedimiento para ver y editar sus pasos.
+            {procs.length ? (
+              <button
+                className="font-semibold text-petroleo hover:underline"
+                onClick={() => setDesplegados(desplegados.size ? new Set() : new Set(procs.map(llaveDe)))}
+              >
+                {desplegados.size ? "Cerrar todos" : "Abrir todos"}
+              </button>
+            ) : null}
+          </span>
         </div>
         {procs.length === 0 && !procsQ.isLoading ? <p className="text-sm text-muted-foreground">No hay procedimientos. Agregue uno o vuelva a leer con IA.</p> : null}
-        {procs.map((p, i) => (
-          <div key={p.id ?? `nuevo-${i}`} className={cn("space-y-2 rounded-md border border-border bg-card p-3", !p.activo && "opacity-60")}>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex flex-col">
-                <button disabled={i === 0} onClick={() => mover(i, -1)} className="text-muted-foreground disabled:opacity-30" aria-label="Subir">
-                  <ArrowUp className="h-4 w-4" />
+        {procs.map((p, i) => {
+          const k = llaveDe(p);
+          const abierto = desplegados.has(k);
+          const paginas = p.pagina_inicio ? `pág. ${p.pagina_inicio}${p.pagina_fin && p.pagina_fin !== p.pagina_inicio ? `–${p.pagina_fin}` : ""}` : "sin página";
+          return (
+            <div key={k || `nuevo-${i}`} className={cn("rounded-md border border-border bg-card", !p.activo && "opacity-60")}>
+              <div className="flex flex-wrap items-center gap-2 p-2">
+                <div className="flex flex-col">
+                  <button disabled={i === 0} onClick={() => mover(i, -1)} className="text-muted-foreground disabled:opacity-30" aria-label="Subir">
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                  <button disabled={i === procs.length - 1} onClick={() => mover(i, 1)} className="text-muted-foreground disabled:opacity-30" aria-label="Bajar">
+                    <ArrowDown className="h-4 w-4" />
+                  </button>
+                </div>
+                <button onClick={() => alternar(k)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                  {abierto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                  <span className="truncate font-semibold">{p.titulo || "Procedimiento"}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{paginas}</span>
+                  {p.pasos.trim() ? null : (
+                    <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">Falta buscar</span>
+                  )}
                 </button>
-                <button disabled={i === procs.length - 1} onClick={() => mover(i, 1)} className="text-muted-foreground disabled:opacity-30" aria-label="Bajar">
-                  <ArrowDown className="h-4 w-4" />
+                <label className="flex items-center gap-2 text-xs">
+                  <Switch checked={p.activo} onCheckedChange={(v) => cambiar(i, { activo: v })} /> En el bot
+                </label>
+                <button
+                  onClick={() => {
+                    if (p.id) setBorrados((b) => [...b, p.id!]);
+                    setProcs((ps) => ps.filter((_, j) => j !== i));
+                  }}
+                  className="text-destructive"
+                  aria-label="Quitar"
+                >
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </div>
-              <Input className="max-w-xs font-semibold" maxLength={24} value={p.titulo} onChange={(e) => cambiar(i, { titulo: e.target.value })} />
-              <Label className="ml-2 text-xs">Página</Label>
-              <Input className="w-16" inputMode="numeric" value={p.pagina_inicio ?? ""} onChange={(e) => cambiar(i, { pagina_inicio: numero(e.target.value) })} />
-              <span className="text-xs">a</span>
-              <Input className="w-16" inputMode="numeric" value={p.pagina_fin ?? ""} onChange={(e) => cambiar(i, { pagina_fin: numero(e.target.value) })} />
-              <label className="ml-auto flex items-center gap-2 text-xs">
-                <Switch checked={p.activo} onCheckedChange={(v) => cambiar(i, { activo: v })} /> En el bot
-              </label>
-              <button
-                onClick={() => {
-                  if (p.id) setBorrados((b) => [...b, p.id!]);
-                  setProcs((ps) => ps.filter((_, j) => j !== i));
-                }}
-                className="text-destructive"
-                aria-label="Quitar"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+              {abierto ? (
+                <div className="space-y-2 border-t border-border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Label className="text-xs">Título</Label>
+                    <Input className="max-w-xs font-semibold" maxLength={24} value={p.titulo} onChange={(e) => cambiar(i, { titulo: e.target.value })} />
+                    <Label className="ml-2 text-xs">Página</Label>
+                    <Input className="w-16" inputMode="numeric" value={p.pagina_inicio ?? ""} onChange={(e) => cambiar(i, { pagina_inicio: numero(e.target.value) })} />
+                    <span className="text-xs">a</span>
+                    <Input className="w-16" inputMode="numeric" value={p.pagina_fin ?? ""} onChange={(e) => cambiar(i, { pagina_fin: numero(e.target.value) })} />
+                  </div>
+                  <Textarea
+                    rows={Math.min(10, Math.max(3, p.pasos.split("\n").length + 1))}
+                    value={p.pasos}
+                    placeholder="Un paso por renglón. Si lo deja vacío, use «Buscar lo que falta con IA»."
+                    onChange={(e) => cambiar(i, { pasos: e.target.value })}
+                  />
+                  {p.usos ? <p className="text-xs text-muted-foreground">Consultado {p.usos} {p.usos === 1 ? "vez" : "veces"}</p> : null}
+                </div>
+              ) : null}
             </div>
-            <Textarea rows={Math.min(10, Math.max(3, p.pasos.split("\n").length + 1))} value={p.pasos} onChange={(e) => cambiar(i, { pasos: e.target.value })} />
-            {p.usos ? <p className="text-xs text-muted-foreground">Consultado {p.usos} {p.usos === 1 ? "vez" : "veces"}</p> : null}
-          </div>
-        ))}
+          );
+        })}
         <div className="flex flex-wrap items-center gap-2">
           <select
             className="h-9 rounded-md border border-input bg-background px-2 text-sm"
             value=""
             onChange={(e) => {
               const def = PROCEDIMIENTOS.find((d) => d.clave === e.target.value);
-              setProcs((ps) => [...ps, { clave: def?.clave ?? null, titulo: def?.titulo ?? "Otro procedimiento", pasos: "", pagina_inicio: null, pagina_fin: null, activo: true, orden: ps.length + 1 }]);
+              const llave = crypto.randomUUID();
+              setProcs((ps) => [...ps, { llave, clave: def?.clave ?? null, titulo: def?.titulo ?? "Otro procedimiento", pasos: "", pagina_inicio: null, pagina_fin: null, activo: true, orden: ps.length + 1 }]);
             }}
           >
             <option value="">+ Agregar procedimiento…</option>
@@ -426,8 +507,11 @@ function Editor({
             <Plus className="mr-1 h-4 w-4" /> Publicar en el bot
           </Button>
         )}
-        <Button variant="outline" disabled={ocupado} onClick={() => void alReleer()}>
-          <RefreshCw className="mr-1 h-4 w-4" /> Volver a leer con IA
+        <Button variant="outline" disabled={guardando || ocupado} onClick={() => void buscarFaltantes()}>
+          <Search className="mr-1 h-4 w-4" /> {vacios ? `Buscar con IA los ${vacios} que faltan` : "Buscar lo que falta con IA"}
+        </Button>
+        <Button variant="ghost" disabled={guardando || ocupado} onClick={() => void leerTodo()}>
+          <RefreshCw className="mr-1 h-4 w-4" /> Leer todo de nuevo
         </Button>
         <Button
           variant="ghost"
@@ -443,7 +527,8 @@ function Editor({
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
-        "Volver a leer con IA" reemplaza los procedimientos por una lectura nueva. Lo que publique es exactamente lo que verá el
+        "Buscar lo que falta con IA" no toca lo que ya está: si agregó procedimientos vacíos busca solo esos; si no, busca los que
+        no se habían encontrado (entran apagados si el manual ya está publicado). "Leer todo de nuevo" reemplaza todo. Lo que publique es exactamente lo que verá el
         vendedor; revise tiempos, botones y valores con el PDF.
       </p>
     </div>

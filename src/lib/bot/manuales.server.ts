@@ -81,7 +81,8 @@ export async function enviarProcedimientos(db: DB, canal: Canal, v: Vendedor, ma
     return enviarTiposManual(db, canal, v);
   }
   const { data } = await db.from("manual_procedimientos").select("*").eq("manual_id", m.id).eq("activo", true).order("orden", { ascending: true });
-  const procs = (data ?? []) as Procedimiento[];
+  // Los procedimientos agregados sin pasos (pendientes de buscar con IA) no se muestran.
+  const procs = ((data ?? []) as Procedimiento[]).filter((p) => p.pasos.trim());
   await db.from("manuales").update({ usos: (m.usos ?? 0) + 1 }).eq("id", m.id);
   const datos = [m.frecuencia ? `Frecuencia: ${m.frecuencia}` : null, m.tipo_codigo ? `Código: ${m.tipo_codigo}` : null].filter(Boolean).join(" · ");
   return responder(canal, v, {

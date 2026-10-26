@@ -31,7 +31,11 @@ Reglas:
 - Incluye solo procedimientos que SÍ vienen en el manual. No inventes nada.
 - Las páginas son las del texto recibido.`;
 
-export async function leerManualConIA(paginas: string[]): Promise<unknown> {
+/**
+ * soloBuscar: busca únicamente esos procedimientos (los que el usuario agregó vacíos).
+ * yaTenemos: procedimientos que ya están; no se repiten.
+ */
+export async function leerManualConIA(paginas: string[], opciones: { soloBuscar?: string[]; yaTenemos?: string[] } = {}): Promise<unknown> {
   const clave = process.env["LOVABLE_API_KEY"];
   if (!clave) {
     throw new Error("Falta activar la inteligencia artificial de Lovable en el proyecto (no existe LOVABLE_API_KEY).");
@@ -49,7 +53,15 @@ export async function leerManualConIA(paginas: string[]): Promise<unknown> {
       model: MODELO_IA,
       messages: [
         { role: "system", content: INSTRUCCIONES },
-        { role: "user", content: contenido },
+        {
+          role: "user",
+          content:
+            (opciones.soloBuscar?.length
+              ? `Busca ÚNICAMENTE estos procedimientos y no incluyas otros: ${opciones.soloBuscar.join("; ")}.\n`
+              : "") +
+            (opciones.yaTenemos?.length ? `Ya tenemos estos procedimientos, NO los incluyas: ${opciones.yaTenemos.join("; ")}.\n` : "") +
+            contenido,
+        },
       ],
       response_format: { type: "json_object" },
     }),

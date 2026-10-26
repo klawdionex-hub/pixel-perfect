@@ -272,25 +272,46 @@ export const dolarDelDia = createServerFn({ method: "POST" })
   });
 
 /**
- * Manuales técnicos: lee con IA el texto de un manual ya subido (las páginas se extraen en el navegador)
- * y guarda los procedimientos encontrados como borrador para que el usuario los revise.
+ * Manuales técnicos: lee con IA el texto de un manual ya subido (las páginas se extraen en el navegador).
+ * modo "todo": reemplaza los procedimientos por una lectura nueva (al subirlo o con "Leer todo de nuevo").
+ * modo "faltantes": conserva lo que ya hay; si hay procedimientos agregados vacíos busca solo esos,
+ * y si no, busca solo los que faltan.
  */
 export const analizarManual = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ manualId: z.string().uuid(), paginas: z.array(z.string().max(20000)).max(400) }).parse(d))
+  .inputValidator((d) =>
+    z
+      .object({
+        manualId: z.string().uuid(),
+        paginas: z.array(z.string().max(20000)).max(400),
+        modo: z.enum(["todo", "faltantes"]).optional(),
+      })
+      .parse(d),
+  )
   .handler(async ({ data, context }) => {
     const { leerManualConIA } = await import("@/lib/ia.server");
     const { validarLectura } = await import("@/lib/manuales/datos");
     const db = context.supabase;
+    const modo = data.modo ?? "todo";
+    const { data: actual } = await db.from("manuales").select("marca, modelo, frecuencia, tipo_codigo, estado").eq("id", data.manualId).single();
+    const estadoPrevio = actual?.estado === "publicado" ? "publicado" : "borrador";
+    const { data: existentes } = await db.from("manual_procedimientos").select("*").eq("manual_id", data.manualId).order("orden");
+    const vacios = (existentes ?? []).filter((p) => !p.pasos.trim());
+    const llenos = (existentes ?? []).filter((p) => p.pasos.trim());
     await db.from("manuales").update({ estado: "leyendo", error: null, paginas: data.paginas.length }).eq("id", data.manualId);
     try {
-      const lectura = validarLectura(await leerManualConIA(data.paginas), data.paginas.length);
-      const { data: actual } = await db.from("manuales").select("marca, modelo, frecuencia, tipo_codigo").eq("id", data.manualId).single();
+      const opciones =
+        modo === "faltantes"
+          ? vacios.length
+            ? { soloBuscar: vacios.map((p) => p.titulo), yaTenemos: llenos.map((p) => p.titulo) }
+            : { yaTenemos: llenos.map((p) => p.titulo) }
+          : {};
+      const lectura = validarLectura(await leerManualConIA(data.paginas, opciones), data.paginas.length);
       await db
         .from("manuales")
         .update({
-          estado: "borrador",
-          tipo: lectura.tipo,
+          estado: modo === "faltantes" ? estadoPrevio : "borrador",
+          ...(modo === "todo" ? { tipo: lectura.tipo } : {}),
           // Lo que el usuario ya haya escrito no se pisa.
           marca: actual?.marca || lectura.marca,
           modelo: actual?.modelo || lectura.modelo,
@@ -299,24 +320,71 @@ export const analizarManual = createServerFn({ method: "POST" })
           actualizado_en: new Date().toISOString(),
         })
         .eq("id", data.manualId);
-      await db.from("manual_procedimientos").delete().eq("manual_id", data.manualId);
-      if (lectura.procedimientos.length) {
-        await db.from("manual_procedimientos").insert(
-          lectura.procedimientos.map((p, i) => ({
-            manual_id: data.manualId,
-            clave: p.clave,
-            titulo: p.titulo,
-            pasos: p.pasos.join("\n"),
-            pagina_inicio: p.pagina_inicio,
-            pagina_fin: p.pagina_fin,
-            orden: i + 1,
-          })),
-        );
+
+      if (modo === "todo") {
+        await db.from("manual_procedimientos").delete().eq("manual_id", data.manualId);
+        if (lectura.procedimientos.length) {
+          await db.from("manual_procedimientos").insert(
+            lectura.procedimientos.map((p, i) => ({
+              manual_id: data.manualId,
+              clave: p.clave,
+              titulo: p.titulo,
+              pasos: p.pasos.join("\n"),
+              pagina_inicio: p.pagina_inicio,
+              pagina_fin: p.pagina_fin,
+              orden: i + 1,
+            })),
+          );
+        }
+        return { ok: true as const, procedimientos: lectura.procedimientos.length, encontrados: lectura.procedimientos.map((p) => p.titulo) };
       }
-      return { ok: true as const, procedimientos: lectura.procedimientos.length };
+
+      // Faltantes: se llenan los vacíos que pidió y, si no pidió ninguno, se agregan los nuevos.
+      const normal = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+      const parecido = (a: string, b: string) => {
+        const x = normal(a);
+        const y = normal(b);
+        return x === y || x.includes(y) || y.includes(x);
+      };
+      const encontrados: string[] = [];
+      const usados = new Set<number>();
+      for (const v of vacios) {
+        const k = lectura.procedimientos.findIndex((p, j) => !usados.has(j) && ((v.clave && p.clave === v.clave) || parecido(p.titulo, v.titulo)));
+        const hallado = k >= 0 ? lectura.procedimientos[k] : vacios.length === 1 ? lectura.procedimientos.find((_, j) => !usados.has(j)) : undefined;
+        if (!hallado) continue;
+        usados.add(lectura.procedimientos.indexOf(hallado));
+        await db
+          .from("manual_procedimientos")
+          .update({ pasos: hallado.pasos.join("\n"), pagina_inicio: v.pagina_inicio ?? hallado.pagina_inicio, pagina_fin: v.pagina_fin ?? hallado.pagina_fin, paginas_url: null })
+          .eq("id", v.id);
+        encontrados.push(v.titulo);
+      }
+      if (!vacios.length) {
+        let orden = (existentes ?? []).reduce((m, p) => Math.max(m, p.orden), 0);
+        const nuevos = lectura.procedimientos.filter(
+          (p) => !llenos.some((e) => (p.clave && e.clave === p.clave) || parecido(e.titulo, p.titulo)),
+        );
+        if (nuevos.length) {
+          await db.from("manual_procedimientos").insert(
+            nuevos.map((p) => ({
+              manual_id: data.manualId,
+              clave: p.clave,
+              titulo: p.titulo,
+              pasos: p.pasos.join("\n"),
+              pagina_inicio: p.pagina_inicio,
+              pagina_fin: p.pagina_fin,
+              orden: ++orden,
+              // Si el manual ya está publicado, lo nuevo entra apagado hasta que el usuario lo revise.
+              activo: estadoPrevio !== "publicado",
+            })),
+          );
+        }
+        encontrados.push(...nuevos.map((p) => p.titulo));
+      }
+      return { ok: true as const, procedimientos: encontrados.length, encontrados };
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
-      await db.from("manuales").update({ estado: "error", error }).eq("id", data.manualId);
+      await db.from("manuales").update({ estado: modo === "faltantes" ? estadoPrevio : "error", error }).eq("id", data.manualId);
       return { ok: false as const, error };
     }
   });
