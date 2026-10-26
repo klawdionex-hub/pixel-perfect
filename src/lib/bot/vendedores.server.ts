@@ -27,6 +27,7 @@ type EstadoVendedor = {
   /** "Varios a la vez": prospectos numerados que se le mostraron y los que eligió. */
   numerados?: string[];
   seleccion?: string[];
+  grupo?: Grupo;
   desde?: string;
   /** Última vez que se le envió la lista de prospectos (evita ciclos con respuestas automáticas). */
   ultima_ayuda?: string;
@@ -35,6 +36,10 @@ type EstadoVendedor = {
   /** ultimo_mensaje_wa para el que ya se pidió renovar la ventana (un aviso por ventana). */
   aviso_ventana?: string;
 };
+
+/** Mis prospectos (aún sin cotizar), Mis cotizados (cotizados y negociando) o todos los abiertos. */
+type Grupo = "prospectos" | "cotizados" | "todos";
+const ETAPAS_GRUPO: Record<Grupo, number[]> = { prospectos: [1], cotizados: [2, 3], todos: [1, 2, 3] };
 
 /** Control interno de avisos por solicitud (columna solicitudes.control_bot). */
 type ControlBot = {
@@ -424,13 +429,62 @@ async function reenviarSinAsignar(db: DB, canal: Canal, solicitudId: string, con
 function preguntaSeguimiento(s: SolicitudConContacto): Salida {
   return {
     tipo: "lista",
-    texto: `Seguimiento del prospecto ${etiquetaProspecto(s).linea}.\n¿Cuál es su estado actual?`,
+    texto: `Seguimiento del prospecto ${etiquetaProspecto(s).linea}${s.etapa === 1 ? "" : ` (${ETAPA_ABIERTA[s.etapa]})`}.\n¿Cuál es su estado actual?`,
     boton: "Ver opciones",
-    opciones: [
-      ...RESULTADOS.map((r) => ({ id: `res:${r.clave}:${s.id}`, titulo: r.titulo })),
-      { id: `ficha:${s.id}`, titulo: "Ver datos del prospecto", descripcion: "Nombre, teléfono y datos del trabajo" },
-    ],
+    opciones: opcionesDeProspecto(s),
   };
+}
+
+/**
+ * Opciones de un prospecto propio según su etapa.
+ * Sin cotizar (Mis prospectos): cotizar o registrar qué pasó. Cotizado (Mis cotizados): su cotización y el resultado.
+ */
+function opcionesDeProspecto(s: Solicitud): Opcion[] {
+  if (s.etapa === 1) {
+    return [
+      { id: `cmd:cotizar:${s.id}`, titulo: "Hacer cotización", descripcion: "Al generarla pasa a Mis cotizados", seccion: "Este prospecto" },
+      { id: `todo:${s.id}`, titulo: "Ver todo del cliente", descripcion: "Datos, fotos, conversación y cotizaciones", seccion: "Este prospecto" },
+      { id: `conv:${s.id}`, titulo: "Ver conversación", descripcion: "Lo que escribió al bot", seccion: "Este prospecto" },
+      { id: `res:2:${s.id}`, titulo: "Lo coticé por fuera", descripcion: "Pasa a Mis cotizados sin hacer el PDF", seccion: "Resultado" },
+      { id: `res:n:${s.id}`, titulo: "No le interesó", seccion: "Resultado" },
+      { id: `res:0:${s.id}`, titulo: "Perdido", seccion: "Resultado" },
+      { id: `res:=:${s.id}`, titulo: "Sin cambios", descripcion: "Le vuelvo a preguntar más adelante", seccion: "Resultado" },
+      { id: "cmd:mis", titulo: "Ver otro prospecto", seccion: "Más" },
+      { id: "cmd:menu", titulo: "Menú", seccion: "Más" },
+    ];
+  }
+  return [
+    { id: `vcot:${s.id}`, titulo: "Ver la cotización", descripcion: "Le reenvío el PDF", seccion: "Este prospecto" },
+    { id: `cmd:recotizar:${s.id}`, titulo: "Volver a cotizar", descripcion: "Con los conceptos de la anterior", seccion: "Este prospecto" },
+    { id: `todo:${s.id}`, titulo: "Ver todo del cliente", descripcion: "Datos, fotos, conversación y cotizaciones", seccion: "Este prospecto" },
+    ...(s.etapa === 2 ? [{ id: `res:3:${s.id}`, titulo: "Negociando", seccion: "Resultado" }] : []),
+    { id: `res:4:${s.id}`, titulo: "Vendido", seccion: "Resultado" },
+    { id: `res:n:${s.id}`, titulo: "No le interesó", seccion: "Resultado" },
+    { id: `res:0:${s.id}`, titulo: "Perdido", seccion: "Resultado" },
+    { id: `res:=:${s.id}`, titulo: "Sin cambios", descripcion: "Le vuelvo a preguntar más adelante", seccion: "Resultado" },
+    { id: "cmd:cotizados", titulo: "Ver otro cotizado", seccion: "Más" },
+    { id: "cmd:menu", titulo: "Menú", seccion: "Más" },
+  ];
+}
+
+/** Al terminar algo con un prospecto abierto se vuelven a ofrecer sus opciones. */
+function opcionesTras(db: DB, canal: Canal, v: Vendedor, s: Solicitud, texto = "¿Qué desea hacer con este prospecto?") {
+  if (![1, 2, 3].includes(s.etapa)) return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
+  return responder(canal, v, { tipo: "lista", texto, boton: "Ver opciones", opciones: opcionesDeProspecto(s) });
+}
+
+const fechaCorta = (iso: string) =>
+  new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "America/Mexico_City" }).format(new Date(iso));
+
+/** Cotizaciones hechas a un prospecto, la más reciente primero. */
+async function cotizacionesDe(db: DB, solicitudId: string) {
+  const { data } = await db
+    .from("cotizaciones")
+    .select("folio, total, creada_en, pdf_url, cliente_nombre")
+    .eq("solicitud_id", solicitudId)
+    .order("creada_en", { ascending: false })
+    .limit(5);
+  return data ?? [];
 }
 
 function zonaDe(s: SolicitudConContacto) {
@@ -536,7 +590,7 @@ export function nombreTarjeta(s: { numero?: number | null; codigo: string | null
   return (lugar ? `${base} · ${lugar}` : base).slice(0, 60);
 }
 
-async function entregarDatos(db: DB, canal: Canal, v: Vendedor, s: SolicitudConContacto, conConversacion = false) {
+async function entregarDatos(db: DB, canal: Canal, v: Vendedor, s: SolicitudConContacto, conConversacion: boolean | "siempre" = false) {
   const c = s.contactos;
   if (c?.telefono && !c.telefono.startsWith("sim-")) {
     await responder(canal, v, { tipo: "contacto", nombre: nombreTarjeta(s), telefono: c.telefono });
@@ -544,7 +598,7 @@ async function entregarDatos(db: DB, canal: Canal, v: Vendedor, s: SolicitudConC
   for (const salida of await datosCompletos(db, s)) await responder(canal, v, salida);
   // Si no terminó la encuesta o escribió cosas fuera de ella, se manda la conversación para no perder nada.
   const datos = (s.datos ?? {}) as Record<string, unknown>;
-  if (conConversacion && (!s.completa || datos["fuera_encuesta"] || datos["pedido_cliente"])) {
+  if (conConversacion === "siempre" || (conConversacion && (!s.completa || datos["fuera_encuesta"] || datos["pedido_cliente"]))) {
     for (const salida of await conversacionDe(db, s)) await responder(canal, v, salida);
   }
 }
@@ -589,6 +643,25 @@ async function conversacionDe(db: DB, s: SolicitudConContacto): Promise<Salida[]
   }
   if (actual) partes.push(actual);
   return partes.map((texto): Salida => ({ tipo: "texto", texto }));
+}
+
+/**
+ * "Ver todo del cliente" (o escribir el número del prospecto): vuelve a mandar todo junto
+ * —tarjeta, datos, fotos, conversación y cotizaciones— para cuando se perdió entre los mensajes.
+ */
+async function verTodo(db: DB, canal: Canal, v: Vendedor, s: SolicitudConContacto) {
+  await responder(canal, v, { tipo: "texto", texto: `Le envío toda la información del prospecto ${folio(s)}.` });
+  await entregarDatos(db, canal, v, s, "siempre");
+  const cots = await cotizacionesDe(db, s.id);
+  if (cots.length) {
+    await responder(canal, v, {
+      tipo: "texto",
+      texto: `*Cotizaciones de este prospecto*\n${cots.map((c) => `· ${c.folio ?? "COT"} · ${moneda(c.total)} · ${fechaCorta(c.creada_en)}`).join("\n")}`,
+    });
+    const ultima = cots[0]!;
+    if (ultima.pdf_url) await responder(canal, v, { tipo: "documento", url: ultima.pdf_url, nombre: `${ultima.folio ?? "Cotización"} ${ultima.cliente_nombre}.pdf` });
+  }
+  return opcionesTras(db, canal, v, s);
 }
 
 async function tomar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, ahora: Date) {
@@ -705,7 +778,10 @@ async function registrarResultado(db: DB, canal: Canal, v: Vendedor, clave: stri
     .eq("id", s.id)
     .select("codigo")
     .single();
-  await responder(canal, v, { tipo: "texto", texto: `Registrado: ${nueva?.codigo ?? s.codigo} – ${r.titulo}.` });
+  await responder(canal, v, {
+    tipo: "texto",
+    texto: `Registrado: ${nueva?.codigo ?? s.codigo} – ${r.titulo}.${s.etapa === 1 ? " Ahora aparece en *Mis cotizados*." : ""}`,
+  });
   return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
 }
 
@@ -798,8 +874,18 @@ export async function procesarMensajeVendedor(
     return enviarMenu(db, canal, v);
   }
   if (id === "cmd:mas") return enviarMenu(db, canal, v, true);
-  if (id === "cmd:mis") return enviarMisProspectos(db, canal, v, "ficha");
-  if (id === "cmd:resultado") return enviarMisProspectos(db, canal, v, "seg");
+  if (id === "cmd:mis") return enviarMisProspectos(db, canal, v, "ficha", "prospectos");
+  if (id === "cmd:cotizados") return enviarMisProspectos(db, canal, v, "ficha", "cotizados");
+  // "Registrar resultado" ya no está en el menú, pero sigue funcionando desde listas y avisos anteriores.
+  if (id === "cmd:resultado") return enviarMisProspectos(db, canal, v, "seg", "todos");
+  if ((accion === "todo" || accion === "vcot") && a) {
+    if (await asignadoAOtro(db, canal, v, a)) return;
+    const s = await cargarSolicitud(db, a);
+    if (!s) return responder(canal, v, { tipo: "texto", texto: "No encontré ese prospecto." });
+    if (!s.vendedor_id) return responder(canal, v, await fichaResumida(db, s));
+    if (accion === "todo") return verTodo(db, canal, v, s);
+    return enviarCotizacionDe(db, canal, v, s);
+  }
   if (id === "cmd:ventas") return enviarMisVentas(db, canal, v, ahora);
   if (accion === "mat" && a) return enviarMaterial(db, canal, v, a, ahora);
   if (id === "cmd:material") return enviarListaMaterial(db, canal, v);
@@ -817,10 +903,7 @@ export async function procesarMensajeVendedor(
     if (!s) return responder(canal, v, { tipo: "texto", texto: "No encontré ese prospecto." });
     if (!s.vendedor_id) return responder(canal, v, await fichaResumida(db, s));
     for (const salida of await conversacionDe(db, s)) await responder(canal, v, salida);
-    return otraAccion(db, canal, v, [
-      { id: `seg:${s.id}`, titulo: "Resultado de este" },
-      { id: "cmd:mis", titulo: "Ver mis prospectos" },
-    ]);
+    return opcionesTras(db, canal, v, s);
   }
   if (accion === "montodespues" && a) {
     await guardarEstadoVendedor(db, v, {});
@@ -831,7 +914,7 @@ export async function procesarMensajeVendedor(
     });
     return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
   }
-  if (id === "varios:") return pedirVarios(db, canal, v, ahora);
+  if (accion === "varios") return pedirVarios(db, canal, v, ahora, a === "prospectos" || a === "cotizados" ? a : "todos");
   if (accion === "resv" && a) return registrarVarios(db, canal, v, a, ahora);
   if (id === "cmd:catalogo") return enviarCategorias(db, canal, v);
   if (accion === "cat" && a) return enviarEquiposDeCategoria(db, canal, v, Number(a), Number(b ?? 0));
@@ -909,7 +992,7 @@ export async function procesarMensajeVendedor(
       tipo: "lista",
       texto: `Eligió ${elegidos.length} prospecto(s). ¿Qué resultado les registro?\n\nLas ventas se registran una por una porque llevan monto.`,
       boton: "Ver resultados",
-      opciones: RESULTADOS.filter((r) => RESULTADOS_VARIOS.includes(r.clave)).map((r) => ({ id: `resv:${r.clave}`, titulo: r.titulo })),
+      opciones: RESULTADOS.filter((r) => RESULTADOS_VARIOS[estado.grupo ?? "todos"].includes(r.clave)).map((r) => ({ id: `resv:${r.clave}`, titulo: r.titulo })),
     });
   }
 
@@ -933,6 +1016,18 @@ export async function procesarMensajeVendedor(
     if (estado.esperando === "motivo") {
       return cerrarPerdido(db, canal, v, estado.solicitud_id!, /^omitir$/i.test(texto) ? null : texto.slice(0, 300), ahora, true);
     }
+  }
+
+  // Atajo: escribir solo el número del prospecto (0045) vuelve a mandar toda su información.
+  const soloNumero = /^#?\s*(?:\d{1,2}-\d{1,2}-)?(\d{1,6})$/.exec(texto);
+  if (soloNumero) {
+    const { data: s0 } = await db.from("solicitudes").select("id").eq("numero", Number(soloNumero[1])).maybeSingle();
+    if (!s0) return responder(canal, v, { tipo: "texto", texto: `No encontré el prospecto número ${soloNumero[1]}. Para ver lo que puede pedirme, escriba *comandos*.` });
+    if (await asignadoAOtro(db, canal, v, s0.id)) return;
+    const s = await cargarSolicitud(db, s0.id);
+    if (!s) return responder(canal, v, { tipo: "texto", texto: "No encontré ese prospecto." });
+    if (!s.vendedor_id) return responder(canal, v, await fichaResumida(db, s));
+    return verTodo(db, canal, v, s);
   }
 
   // Comandos de texto: "0045 vendido 12500", "45 cotizado", "0045 perdido motivo".
@@ -961,7 +1056,7 @@ export async function procesarMensajeVendedor(
   await guardarEstadoVendedor(db, v, { ...estado, ultima_ayuda: ahora.toISOString() });
   return responder(canal, v, {
     tipo: "texto",
-    texto: `Buen día, ${v.nombre}. Este número es el asistente de AFPAM Texcoco. Para ver lo que puede pedirme, escriba *comandos*.`,
+    texto: `Buen día, ${v.nombre}. Este número es el asistente de AFPAM Texcoco. Para ver lo que puede pedirme, escriba *comandos*.\nSi escribe el número de un prospecto suyo (por ejemplo *0045*), le envío toda su información.`,
   });
 }
 
@@ -979,9 +1074,9 @@ async function materialesPara(db: DB, v: Vendedor): Promise<Material[]> {
 }
 
 const MENU_FIJO: Opcion[] = [
-  { id: "cmd:mis", titulo: "Ver mis prospectos", descripcion: "Ficha y datos de cada uno", seccion: "Mis prospectos" },
-  { id: "cmd:resultado", titulo: "Registrar resultado", descripcion: "Cotizado, negociando, vendido o perdido", seccion: "Mis prospectos" },
-  { id: "cmd:pendientes", titulo: "Prospectos sin vendedor", descripcion: "Para tomar uno", seccion: "Mis prospectos" },
+  { id: "cmd:mis", titulo: "Mis prospectos", descripcion: "Aún sin cotizar: datos y qué pasó", seccion: "Prospectos" },
+  { id: "cmd:cotizados", titulo: "Mis cotizados", descripcion: "Su cotización y el resultado", seccion: "Prospectos" },
+  { id: "cmd:pendientes", titulo: "Prospectos sin vendedor", descripcion: "Para tomar uno", seccion: "Prospectos" },
   { id: "cmd:ventas", titulo: "Ventas y comisión", descripcion: "Del mes en curso", seccion: "Mis ventas" },
   { id: "cmd:catalogo", titulo: "Catálogo de equipos", descripcion: "Fotos para enviar al cliente", seccion: "Catálogo" },
   { id: "cmd:cotizar", titulo: "Hacer cotización", descripcion: "PDF con la plantilla de AFPAM", seccion: "Catálogo" },
@@ -1001,8 +1096,8 @@ export function otraAccion(_db: DB, canal: Canal, v: Vendedor, repetir: Opcion[]
 }
 
 const SIGUIENTE_RESULTADO: Opcion[] = [
-  { id: "cmd:resultado", titulo: "Registrar otro" },
-  { id: "cmd:mis", titulo: "Ver mis prospectos" },
+  { id: "cmd:mis", titulo: "Mis prospectos" },
+  { id: "cmd:cotizados", titulo: "Mis cotizados" },
 ];
 
 async function enviarMenu(db: DB, canal: Canal, v: Vendedor, mas = false, o: { texto?: string; extras?: Opcion[] } = {}) {
@@ -1035,54 +1130,90 @@ async function enviarMenu(db: DB, canal: Canal, v: Vendedor, mas = false, o: { t
   if (materiales.length > enPrimera) opciones.push({ id: "cmd:mas", titulo: "Más material…", seccion: "Material de venta" });
   return responder(canal, v, {
     tipo: "lista",
-    texto: o.texto ?? `${v.nombre}, ¿qué desea hacer? Elija una opción del menú.\n\nPuede abrir este menú cuando quiera escribiendo *comandos*.`,
+    texto:
+      o.texto ??
+      `${v.nombre}, ¿qué desea hacer? Elija una opción del menú.\n\nPuede abrir este menú cuando quiera escribiendo *comandos*. Si escribe el número de un prospecto suyo (por ejemplo *0045*), le envío toda su información.`,
     boton: "Ver menú",
     opciones,
   });
 }
 
-/** Lista de sus prospectos abiertos: "ficha" muestra los datos, "seg" pregunta el resultado. */
-async function enviarMisProspectos(db: DB, canal: Canal, v: Vendedor, para: "ficha" | "seg") {
-  // "Ver mis prospectos" muestra solo los que aún no tienen resultado; "Registrar resultado", todos los abiertos.
+/**
+ * Lista de sus prospectos: "prospectos" (aún sin cotizar), "cotizados" (cotizados y negociando) o "todos".
+ * "ficha" abre las opciones del prospecto; "seg" pregunta el resultado.
+ */
+async function enviarMisProspectos(db: DB, canal: Canal, v: Vendedor, para: "ficha" | "seg", grupo: Grupo = para === "ficha" ? "prospectos" : "todos") {
   const { data } = await db
     .from("solicitudes")
     .select("*, contactos(*)")
     .eq("vendedor_id", v.id)
-    .in("etapa", para === "ficha" ? [1] : [1, 2, 3])
+    .in("etapa", ETAPAS_GRUPO[grupo])
     .order("creada_en", { ascending: false })
     .limit(60);
   // Primero los que no tienen resultado; luego los cotizados y en negociación.
   const abiertas = ordenarPorEtapa((data ?? []) as SolicitudConContacto[]);
   if (!abiertas.length) {
+    if (grupo === "prospectos") {
+      return responder(canal, v, {
+        tipo: "botones",
+        texto: "No tiene prospectos sin cotizar.",
+        opciones: [{ id: "cmd:cotizados", titulo: "Mis cotizados" }, { id: "cmd:pendientes", titulo: "Ver sin vendedor" }, { id: "cmd:menu", titulo: "Menú" }],
+      });
+    }
+    if (grupo === "cotizados") {
+      return responder(canal, v, {
+        tipo: "botones",
+        texto: "No tiene prospectos cotizados pendientes de resultado.",
+        opciones: [{ id: "cmd:mis", titulo: "Mis prospectos" }, { id: "cmd:menu", titulo: "Menú" }],
+      });
+    }
     return responder(canal, v, {
       tipo: "botones",
-      texto: para === "ficha" ? "No tiene prospectos pendientes de resultado." : "No tiene prospectos abiertos asignados en este momento.",
+      texto: "No tiene prospectos abiertos asignados en este momento.",
       opciones: [{ id: "cmd:pendientes", titulo: "Ver sin vendedor" }, { id: "cmd:menu", titulo: "Regresar al menú" }],
     });
   }
-  const cupo = para === "seg" && abiertas.length > 1 ? 9 : 10;
+  const cupo = abiertas.length > 1 ? 9 : 10;
+  const seccionDe = (s: Solicitud) => (s.etapa === 1 ? "Sin cotizar" : "Cotizados y negociando");
   const opciones: Opcion[] = abiertas.slice(0, cupo).map((s): Opcion => {
     const e = etiquetaProspecto(s);
     return {
       id: `${para}:${s.id}`,
       titulo: e.titulo,
       descripcion: s.etapa === 1 ? e.descripcion : `${ETAPA_ABIERTA[s.etapa]} · ${e.descripcion}`.slice(0, 72),
-      seccion: s.etapa === 1 ? "Sin resultado" : "Cotizados y negociando",
+      seccion: seccionDe(s),
     };
   });
-  if (para === "seg" && abiertas.length > 1) {
-    opciones.unshift({ id: "varios:", titulo: "Varios a la vez", descripcion: "Ver todos y registrar varios", seccion: "Sin resultado" });
+  if (abiertas.length > 1) {
+    opciones.unshift({ id: `varios:${grupo}`, titulo: "Varios a la vez", descripcion: "Ver todos y registrar varios", seccion: seccionDe(abiertas[0]!) });
   }
   const sinResultado = abiertas.filter((s) => s.etapa === 1).length;
-  const resumen =
-    para === "seg" ? `\n\nSin resultado: ${sinResultado} · Cotizados o negociando: ${abiertas.length - sinResultado}.` : "";
   const faltan = abiertas.length > cupo ? `\nSe muestran ${cupo} de ${abiertas.length}; con *Varios a la vez* ve la lista completa.` : "";
-  return responder(canal, v, {
-    tipo: "lista",
-    texto: (para === "ficha" ? "Elija el prospecto para ver su ficha." : "¿De qué prospecto desea registrar el resultado?") + resumen + faltan,
-    boton: "Ver prospectos",
-    opciones,
-  });
+  const texto =
+    grupo === "prospectos"
+      ? `*Mis prospectos* (aún sin cotizar): ${abiertas.length}.\nElija uno para ver sus datos, cotizarlo o registrar qué pasó.`
+      : grupo === "cotizados"
+        ? `*Mis cotizados*: ${abiertas.length}.\nElija uno para ver su cotización, volver a cotizar o registrar el resultado.`
+        : `¿De qué prospecto desea registrar el resultado?\n\nSin resultado: ${sinResultado} · Cotizados o negociando: ${abiertas.length - sinResultado}.`;
+  return responder(canal, v, { tipo: "lista", texto: texto + faltan, boton: "Ver prospectos", opciones });
+}
+
+/** "Ver la cotización": reenvía el PDF de la última (y lista las anteriores). */
+async function enviarCotizacionDe(db: DB, canal: Canal, v: Vendedor, s: SolicitudConContacto) {
+  const cots = await cotizacionesDe(db, s.id);
+  const ultima = cots[0];
+  if (!ultima?.pdf_url) {
+    return opcionesTras(db, canal, v, s, `El prospecto ${folio(s)} no tiene una cotización hecha en el bot (se registró como cotizado por fuera). Puede hacerla con *Volver a cotizar*.`);
+  }
+  await responder(canal, v, { tipo: "documento", url: ultima.pdf_url, nombre: `${ultima.folio ?? "Cotización"} ${ultima.cliente_nombre}.pdf` });
+  const anteriores = cots.slice(1).map((c) => `· ${c.folio ?? "COT"} · ${moneda(c.total)} · ${fechaCorta(c.creada_en)}`);
+  return opcionesTras(
+    db,
+    canal,
+    v,
+    s,
+    `Cotización *${ultima.folio}* · ${moneda(ultima.total)} · ${fechaCorta(ultima.creada_en)}.${anteriores.length ? `\n\nAnteriores:\n${anteriores.join("\n")}` : ""}\n\n¿Qué desea hacer con este prospecto?`,
+  );
 }
 
 const ETAPA_ABIERTA: Record<number, string> = { 1: "Sin resultado", 2: "Cotizado", 3: "Negociando" };
@@ -1093,17 +1224,17 @@ function ordenarPorEtapa<T extends { etapa: number; creada_en: string }>(lista: 
 }
 
 /** Varios a la vez: muestra los prospectos numerados para que escriba cuáles. */
-async function pedirVarios(db: DB, canal: Canal, v: Vendedor, ahora: Date) {
+async function pedirVarios(db: DB, canal: Canal, v: Vendedor, ahora: Date, grupo: Grupo = "todos") {
   const { data } = await db
     .from("solicitudes")
     .select("*, contactos(*)")
     .eq("vendedor_id", v.id)
-    .in("etapa", [1, 2, 3])
+    .in("etapa", ETAPAS_GRUPO[grupo])
     .order("creada_en", { ascending: false })
     .limit(40);
   const abiertas = ordenarPorEtapa((data ?? []) as SolicitudConContacto[]);
-  if (!abiertas.length) return enviarMisProspectos(db, canal, v, "seg");
-  await guardarEstadoVendedor(db, v, { ...((v.estado_bot ?? {}) as EstadoVendedor), esperando: "varios", numerados: abiertas.map((s) => s.id), seleccion: [], desde: ahora.toISOString() });
+  if (!abiertas.length) return enviarMisProspectos(db, canal, v, "ficha", grupo);
+  await guardarEstadoVendedor(db, v, { ...((v.estado_bot ?? {}) as EstadoVendedor), esperando: "varios", grupo, numerados: abiertas.map((s) => s.id), seleccion: [], desde: ahora.toISOString() });
   const lineas: string[] = [];
   abiertas.forEach((s, i) => {
     const grupo = s.etapa === 1 ? "*Sin resultado*" : "*Cotizados y negociando*";
@@ -1116,13 +1247,14 @@ async function pedirVarios(db: DB, canal: Canal, v: Vendedor, ahora: Date) {
   });
 }
 
-const RESULTADOS_VARIOS = ["2", "3", "n", "0", "="];
+/** Resultados que se pueden poner a varios a la vez; las ventas van una por una porque llevan monto. */
+const RESULTADOS_VARIOS: Record<Grupo, string[]> = { prospectos: ["2", "n", "0", "="], cotizados: ["3", "n", "0", "="], todos: ["2", "3", "n", "0", "="] };
 
 /** Al abrir el menú se descarta una selección de "Varios a la vez" que quedó a medias. */
 async function olvidarVarios(db: DB, v: Vendedor) {
   const estado = (v.estado_bot ?? {}) as EstadoVendedor;
   if (estado.esperando !== "varios") return;
-  const { esperando: _e, numerados: _n, seleccion: _s, ...resto } = estado;
+  const { esperando: _e, numerados: _n, seleccion: _s, grupo: _g, ...resto } = estado;
   await guardarEstadoVendedor(db, v, resto);
 }
 
@@ -1158,7 +1290,7 @@ async function registrarVarios(db: DB, canal: Canal, v: Vendedor, clave: string,
   return otraAccion(db, canal, v, SIGUIENTE_RESULTADO);
 }
 
-/** Ficha completa de un prospecto propio, con botón para registrar el resultado. */
+/** Un prospecto propio: sus datos principales y sus opciones (las de Mis prospectos o las de Mis cotizados). */
 async function enviarFicha(db: DB, canal: Canal, v: Vendedor, solicitudId: string) {
   if (await asignadoAOtro(db, canal, v, solicitudId)) return;
   const s = await cargarSolicitud(db, solicitudId);
@@ -1166,13 +1298,20 @@ async function enviarFicha(db: DB, canal: Canal, v: Vendedor, solicitudId: strin
   if (!s.vendedor_id) {
     return responder(canal, v, await fichaResumida(db, s));
   }
-  await entregarDatos(db, canal, v, s);
-  return otraAccion(db, canal, v, [
-    { id: `seg:${s.id}`, titulo: "Resultado de este" },
-    { id: `cmd:cotizar:${s.id}`, titulo: "Hacer cotización" },
-    { id: `conv:${s.id}`, titulo: "Ver conversación" },
-    { id: "cmd:mis", titulo: "Ver otro prospecto" },
-  ]);
+  if (await yaCerrado(canal, v, s)) return enviarMisProspectos(db, canal, v, "ficha", "prospectos");
+  const c = s.contactos;
+  const ultima = (await cotizacionesDe(db, s.id))[0];
+  const lineas = [
+    `*Prospecto ${folio(s)}*${s.etapa === 1 ? "" : ` · ${ETAPA_ABIERTA[s.etapa]}`}`,
+    `Nombre: ${c?.nombre?.trim() || "Sin nombre"}`,
+    `Teléfono: ${telefonoLegible(c?.telefono ?? "")}`,
+    `Municipio: ${c?.municipio ?? "Sin especificar"}`,
+    `Servicio: ${await nombreServicio(db, s)}`,
+    ultima ? `Última cotización: ${ultima.folio ?? "COT"} · ${moneda(ultima.total)} · ${fechaCorta(ultima.creada_en)}` : null,
+    "",
+    "¿Qué desea hacer?",
+  ].filter((x): x is string => x !== null);
+  return responder(canal, v, { tipo: "lista", texto: lineas.join("\n"), boton: "Ver opciones", opciones: opcionesDeProspecto(s) });
 }
 
 /** Ventas y comisión del mes en curso (hora de Ciudad de México). */

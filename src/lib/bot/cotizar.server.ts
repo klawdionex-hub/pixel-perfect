@@ -78,6 +78,22 @@ async function catalogo(db: DB): Promise<Equipo[]> {
   return error ? [] : (data ?? []);
 }
 
+/** Nombre para los mensajes; el cliente puede no haberlo dado todavía (Omitir). */
+const nombreCliente = (b: BorradorCot) => b.cliente.nombre || "Cliente sin nombre";
+
+/** Botón Omitir para los datos que el cliente todavía no da. */
+const OMITIR = (dato: "nombre" | "tel" | "mun"): Opcion => ({ id: `cot:omitir:${dato}`, titulo: "Omitir" });
+
+async function pedirNombre(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, texto = "Escriba el nombre completo del cliente.") {
+  b.paso = "nombre";
+  await guardar(db, v, b);
+  return responder(canal, v, {
+    tipo: "botones",
+    texto: `${texto}\nSi aún no se lo da, seleccione *Omitir*${b.captura === "corregir" && b.cliente.nombre ? " (se queda el que tiene)" : ""}.`,
+    opciones: [OMITIR("nombre")],
+  });
+}
+
 const resumenCorto = (b: BorradorCot) =>
   b.partidas.length
     ? b.partidas.map((p) => `• ${p.concepto} · ${p.cantidad} × ${pesos(p.precio)}`).join("\n") + `\nTotal: *${pesos(totalDe(b.partidas))}*`
@@ -175,9 +191,11 @@ function nombreSospechoso(n: string | null | undefined) {
 async function confirmarDatos(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
   b.paso = "menu";
   await guardar(db, v, b);
-  const aviso = nombreSospechoso(b.cliente.nombre)
-    ? `\n\nEl nombre registrado parece no ser válido ("${b.cliente.nombre || "sin nombre"}"). Le recomiendo corregirlo antes de cotizar.`
-    : "";
+  const aviso = !b.cliente.nombre
+    ? "\n\nEl cliente no tiene nombre registrado. Puede continuar sin nombre o corregirlo."
+    : nombreSospechoso(b.cliente.nombre)
+      ? `\n\nEl nombre registrado parece no ser válido ("${b.cliente.nombre}"). Le recomiendo corregirlo antes de cotizar.`
+      : "";
   return responder(canal, v, {
     tipo: "botones",
     texto: `*Datos del cliente*\nNombre: ${b.cliente.nombre || "—"}\nTeléfono: ${b.cliente.telefono ?? "—"}\nMunicipio: ${b.cliente.municipio ?? "—"}${aviso}`,
@@ -227,7 +245,7 @@ async function pedirTelefono(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) 
   }
   b.paso = "telefono";
   await guardar(db, v, b);
-  return responder(canal, v, { tipo: "texto", texto: 'Escriba el teléfono del cliente a 10 dígitos, o "omitir".' });
+  return responder(canal, v, { tipo: "botones", texto: "Escriba el teléfono del cliente a 10 dígitos.\nSi aún no se lo da, seleccione *Omitir*.", opciones: [OMITIR("tel")] });
 }
 
 async function pedirMunicipio(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
@@ -245,7 +263,7 @@ async function pedirMunicipio(db: DB, canal: Canal, v: Vendedor, b: BorradorCot)
   }
   b.paso = "municipio";
   await guardar(db, v, b);
-  return responder(canal, v, { tipo: "texto", texto: 'Escriba el municipio o la colonia, o "omitir".' });
+  return responder(canal, v, { tipo: "botones", texto: "Escriba el municipio o la colonia.\nSi aún no se lo da, seleccione *Omitir*.", opciones: [OMITIR("mun")] });
 }
 
 /** Termina la captura: guarda nombre y municipio corregidos en el contacto y sigue. */
@@ -253,7 +271,7 @@ async function terminarCaptura(db: DB, canal: Canal, v: Vendedor, b: BorradorCot
   if (b.contacto_id) {
     await db
       .from("contactos")
-      .update({ nombre: b.cliente.nombre, ...(b.cliente.municipio ? { municipio: b.cliente.municipio } : {}) })
+      .update({ ...(b.cliente.nombre ? { nombre: b.cliente.nombre } : {}), ...(b.cliente.municipio ? { municipio: b.cliente.municipio } : {}) })
       .eq("id", b.contacto_id);
   }
   b.captura = null;
@@ -267,12 +285,12 @@ async function preguntarEquipo(db: DB, canal: Canal, v: Vendedor, b: BorradorCot
   const usadas = CATEGORIAS_EQUIPO.map((c, i) => ({ c, i, n: equipos.filter((e) => indiceCategoria(e.categoria) === i).length })).filter((x) => x.n);
   return responder(canal, v, {
     tipo: "lista",
-    texto: `Cliente: *${b.cliente.nombre}*.\n¿Qué equipo va a cotizar?`,
+    texto: `Cliente: *${nombreCliente(b)}*.\n¿Qué equipo va a cotizar?`,
     boton: "Elegir equipo",
     opciones: [
       ...usadas.map(({ c, i, n }): Opcion => ({ id: `cot:cat:${i}`, titulo: c, descripcion: `${n} equipo(s)` })),
       { id: "cot:elev", titulo: "Portón elevadizo", descripcion: "Calcular el precio con las medidas" },
-      { id: "cot:libre", titulo: "Concepto a mano", descripcion: "Algo que no está en el catálogo" },
+      { id: "cot:libre", titulo: "Producto/servicio a mano", descripcion: "Algo que no está en el catálogo" },
     ],
   });
 }
@@ -285,7 +303,7 @@ async function preguntarMas(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
     { id: "cot:cats", titulo: "Equipo del catálogo" },
     { id: "cot:serv", titulo: "Servicios y extras", descripcion: "Instalación, controles, cableado…" },
     { id: "cot:elev", titulo: "Portón elevadizo", descripcion: "Calcular el precio con las medidas" },
-    { id: "cot:libre", titulo: "Concepto a mano", descripcion: "Por ejemplo, fabricación de portón" },
+    { id: "cot:libre", titulo: "Producto/servicio a mano", descripcion: "Algo que no está en el catálogo" },
   ];
   if (b.partidas.length) opciones.push({ id: "cot:quitar", titulo: "Quitar un concepto" }, { id: "cot:fin", titulo: "Terminar", descripcion: "Revisar y generar el PDF" });
   return responder(canal, v, {
@@ -333,7 +351,7 @@ async function mostrarElevadizo(db: DB, canal: Canal, v: Vendedor, b: BorradorCo
       tipo: "botones",
       texto: r.error,
       opciones: [
-        { id: "cot:libre", titulo: "Concepto a mano" },
+        { id: "cot:libre", titulo: "Escribirlo a mano" },
         { id: "cot:mas", titulo: "Regresar" },
       ],
     });
@@ -415,13 +433,69 @@ async function resumenFinal(db: DB, canal: Canal, v: Vendedor, b: BorradorCot) {
   await guardar(db, v, b);
   return responder(canal, v, {
     tipo: "botones",
-    texto: `*Resumen de la cotización*\nCliente: ${b.cliente.nombre}\n${resumenCorto(b)}${b.iva === "incluye" ? "\nPrecios con IVA incluido." : b.iva === "mas" ? "\nPrecios más IVA." : ""}`,
+    texto: `*Resumen de la cotización*\nCliente: ${nombreCliente(b)}\n${resumenCorto(b)}${b.iva === "incluye" ? "\nPrecios con IVA incluido." : b.iva === "mas" ? "\nPrecios más IVA." : ""}`,
     opciones: [
       { id: "cot:pdf:no", titulo: "PDF sin marca" },
       { id: "cot:pdf:si", titulo: "PDF con marca" },
       { id: "cot:corregir", titulo: "Corregir" },
     ],
   });
+}
+
+/** Omitir un dato que el cliente aún no da; al corregir, Omitir deja el que ya tenía. */
+async function omitir(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, dato: "nombre" | "tel" | "mun") {
+  const corrigiendo = b.captura === "corregir";
+  if (dato === "nombre") {
+    if (!corrigiendo) b.cliente.nombre = "";
+    return pedirTelefono(db, canal, v, b);
+  }
+  if (dato === "tel") {
+    if (!corrigiendo) b.cliente.telefono = null;
+    return pedirMunicipio(db, canal, v, b);
+  }
+  if (!corrigiendo) b.cliente.municipio = null;
+  return terminarCaptura(db, canal, v, b);
+}
+
+/** "Volver a cotizar": cotización nueva con los conceptos de la última que se le hizo a este prospecto. */
+async function recotizar(db: DB, canal: Canal, v: Vendedor, solicitudId: string, ahora: Date) {
+  const { data: previa } = await db
+    .from("cotizaciones")
+    .select("folio, partidas, iva, equipo_principal_id, cliente_nombre, cliente_telefono, proyecto")
+    .eq("solicitud_id", solicitudId)
+    .order("creada_en", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  await guardar(db, v, { paso: "cliente", desde: ahora.toISOString(), cliente: { nombre: "" }, partidas: [] });
+  if (!previa) {
+    await responder(canal, v, { tipo: "texto", texto: "Este prospecto no tiene una cotización hecha en el bot. Empezamos una nueva." });
+    return atender(db, canal, v, { opcionId: `cot:sol:${solicitudId}` }, ahora);
+  }
+  const { data: s } = await db.from("solicitudes").select("servicio_codigo, contacto_id, contactos(nombre, telefono, municipio)").eq("id", solicitudId).maybeSingle();
+  const c = s?.contactos as { nombre: string | null; telefono: string; municipio: string | null } | null;
+  const iva = previa.iva === "incluye" || previa.iva === "mas" ? previa.iva : null;
+  const b: BorradorCot = {
+    paso: "menu",
+    desde: ahora.toISOString(),
+    solicitud_id: solicitudId,
+    contacto_id: s?.contacto_id ?? null,
+    servicio: s?.servicio_codigo ?? null,
+    necesitaServicio: false,
+    cliente: {
+      nombre: c?.nombre?.trim() || (previa.cliente_nombre === "Sin nombre" ? "" : previa.cliente_nombre),
+      telefono: previa.cliente_telefono ?? (c?.telefono && !c.telefono.startsWith("sim-") ? c.telefono : null),
+      municipio: c?.municipio ?? null,
+      proyecto: previa.proyecto,
+    },
+    partidas: Array.isArray(previa.partidas) ? (previa.partidas as unknown as Partida[]) : [],
+    principal_id: previa.equipo_principal_id,
+    iva,
+  };
+  await responder(canal, v, {
+    tipo: "texto",
+    texto: `Se cargaron los conceptos de la cotización *${previa.folio ?? ""}*. Puede agregar, quitar o terminar; al generarla sale con un folio nuevo.`,
+  });
+  return preguntarMas(db, canal, v, b);
 }
 
 // ---------------------------------------------------------------- generar
@@ -449,7 +523,7 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
       if (!contactoId) {
         const { data: nuevo } = await db
           .from("contactos")
-          .insert({ telefono: b.cliente.telefono, nombre: b.cliente.nombre, municipio: b.cliente.municipio ?? null, origen: "cotización" })
+          .insert({ telefono: b.cliente.telefono, nombre: b.cliente.nombre || null, municipio: b.cliente.municipio ?? null, origen: "cotización" })
           .select("id")
           .single();
         contactoId = nuevo?.id ?? null;
@@ -487,7 +561,7 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
     .insert({
       solicitud_id: b.solicitud_id ?? null,
       vendedor_id: v.id,
-      cliente_nombre: b.cliente.nombre,
+      cliente_nombre: b.cliente.nombre || "Sin nombre",
       cliente_telefono: b.cliente.telefono ?? null,
       proyecto: b.cliente.proyecto ?? null,
       equipo_principal_id: principal?.id ?? null,
@@ -538,7 +612,7 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
   await responder(canal, v, { tipo: "documento", url, nombre: `${nombreArchivo}.pdf` });
   await responder(canal, v, {
     tipo: "texto",
-    texto: `Listo: cotización *${cot.folio}* por *${pesos(total)}*${conMarca ? " (con marca y modelo)" : ""}.${aviso}\n\nRevísela antes de reenviarla al cliente. Si necesita cambios, escriba *comandos* y haga una nueva.`,
+    texto: `Listo: cotización *${cot.folio}* por *${pesos(total)}*${conMarca ? " (con marca y modelo)" : ""}.${aviso}\n\nRevísela antes de reenviarla al cliente.${b.solicitud_id ? " Si necesita cambios, elija *Corregir y rehacer*: se cargan estos mismos conceptos. El prospecto ya está en *Mis cotizados*." : " Si necesita cambios, escriba *comandos* y haga una nueva."}`,
   });
   // Ganancia: con los conceptos que tienen costo en el catálogo; los demás se mencionan aparte.
   const conCosto = b.partidas.filter((p) => p.costo != null);
@@ -559,7 +633,11 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
         .join("\n"),
     });
   }
-  await otraAccion(db, canal, v, [{ id: "cmd:cotizar", titulo: "Otra cotización" }]);
+  const solicitud = b.solicitud_id;
+  await otraAccion(db, canal, v, [
+    ...(solicitud ? [{ id: `cmd:recotizar:${solicitud}`, titulo: "Corregir y rehacer" }] : []),
+    { id: "cmd:cotizar", titulo: "Otra cotización" },
+  ]);
 }
 
 // ---------------------------------------------------------------- entrada
@@ -607,6 +685,10 @@ async function atender(
     return true;
   }
   // "Hacer cotización" desde un prospecto: la cotización empieza ya con ese cliente.
+  if (id.startsWith("cmd:recotizar:")) {
+    await recotizar(db, canal, v, id.slice("cmd:recotizar:".length), ahora);
+    return true;
+  }
   if (id.startsWith("cmd:cotizar:")) {
     await guardar(db, v, { paso: "cliente", desde: ahora.toISOString(), cliente: { nombre: "" }, partidas: [] });
     return atender(db, canal, v, { opcionId: `cot:sol:${id.slice("cmd:cotizar:".length)}` }, ahora);
@@ -654,8 +736,9 @@ async function atender(
       return true;
     }
     if (b.paso === "nombre") {
+      if (/^omitir$/i.test(texto)) return (await omitir(db, canal, v, b, "nombre"), true);
       if (nombreSospechoso(texto)) {
-        await responder(canal, v, { tipo: "texto", texto: "Escriba el nombre completo del cliente, por ejemplo *Juan Pérez*." });
+        await pedirNombre(db, canal, v, b, "Escriba el nombre completo del cliente, por ejemplo *Juan Pérez*.");
         return true;
       }
       b.cliente.nombre = texto.slice(0, 80).toLowerCase().replace(/(^|\s)\p{L}/gu, (m) => m.toUpperCase());
@@ -666,7 +749,7 @@ async function atender(
       if (!/^omitir$/i.test(texto)) {
         const r = revisarTelefono(texto);
         if (!r.ok) {
-          await responder(canal, v, { tipo: "texto", texto: `${r.error} O escriba "omitir".` });
+          await responder(canal, v, { tipo: "botones", texto: `${r.error}\nSi aún no se lo da, seleccione *Omitir*.`, opciones: [OMITIR("tel")] });
           return true;
         }
         b.cliente.telefono = normalizarTelefono(r.diez);
@@ -779,9 +862,11 @@ async function atender(
     b.necesitaServicio = true;
     b.captura = "nuevo";
     b.cliente = { nombre: "" };
-    b.paso = "nombre";
-    await guardar(db, v, b);
-    await responder(canal, v, { tipo: "texto", texto: "Escriba el nombre completo del cliente." });
+    await pedirNombre(db, canal, v, b);
+    return true;
+  }
+  if (accion === "omitir" && (a === "nombre" || a === "tel" || a === "mun")) {
+    await omitir(db, canal, v, b, a);
     return true;
   }
   if (accion === "ok") {
@@ -790,16 +875,14 @@ async function atender(
   }
   if (accion === "datos") {
     b.captura = "corregir";
-    b.paso = "nombre";
-    await guardar(db, v, b);
-    await responder(canal, v, { tipo: "texto", texto: "Escriba el nombre completo del cliente." });
+    await pedirNombre(db, canal, v, b);
     return true;
   }
   if (accion === "tel") {
     if (a === "cambiar") {
       b.paso = "telefono";
       await guardar(db, v, b);
-      await responder(canal, v, { tipo: "texto", texto: "Escriba el teléfono del cliente a 10 dígitos." });
+      await responder(canal, v, { tipo: "botones", texto: "Escriba el teléfono del cliente a 10 dígitos.\nSi aún no se lo da, seleccione *Omitir*.", opciones: [OMITIR("tel")] });
     } else await pedirMunicipio(db, canal, v, b);
     return true;
   }
@@ -807,7 +890,7 @@ async function atender(
     if (a === "cambiar") {
       b.paso = "municipio";
       await guardar(db, v, b);
-      await responder(canal, v, { tipo: "texto", texto: "Escriba el municipio o la colonia." });
+      await responder(canal, v, { tipo: "botones", texto: "Escriba el municipio o la colonia.\nSi aún no se lo da, seleccione *Omitir*.", opciones: [OMITIR("mun")] });
     } else await terminarCaptura(db, canal, v, b);
     return true;
   }
@@ -836,16 +919,24 @@ async function atender(
       await preguntarMas(db, canal, v, b);
       return true;
     }
+    // Al final de cada lista va "Producto/servicio a mano"; si no caben todos, se pasa de página con "Ver más".
+    const pagina = Number(id.split(":")[3] ?? 0) || 0;
+    const inicio = pagina * 7;
+    const cabe = lista.length - inicio <= 8 ? 8 : 7;
+    const trozo = lista.slice(inicio, inicio + cabe);
+    const quedan = lista.length - inicio - trozo.length;
     await responder(canal, v, {
       tipo: "lista",
       texto: accion === "serv" ? "Elija el servicio o extra." : "Elija el equipo.",
       boton: "Ver opciones",
       opciones: [
-        ...lista.slice(0, 9).map((e): Opcion => ({
+        ...trozo.map((e): Opcion => ({
           id: `cot:eq:${e.id}`,
           titulo: accion === "serv" ? e.nombre : e.clave,
           descripcion: accion === "serv" ? (e.precio != null ? pesos(Number(e.precio)) : "Precio a mano") : e.nombre,
         })),
+        ...(quedan > 0 ? [{ id: `cot:${accion}:${a ?? "x"}:${pagina + 1}`, titulo: "Ver más…", descripcion: `${quedan} más` }] : []),
+        { id: "cot:libre", titulo: "Producto/servicio a mano", descripcion: "No está en el catálogo" },
         { id: "cot:mas", titulo: "Regresar" },
       ],
     });
@@ -901,7 +992,10 @@ async function atender(
   if (accion === "libre") {
     b.paso = "concepto";
     await guardar(db, v, b);
-    await responder(canal, v, { tipo: "texto", texto: "Escriba el concepto, por ejemplo: *Fabricación de portón elevadizo 3 x 2.4 m en lámina*." });
+    await responder(canal, v, {
+      tipo: "texto",
+      texto: "Escriba el nombre del producto o servicio, por ejemplo: *Fabricación de portón elevadizo 3 x 2.4 m en lámina*.\nDespués le pregunto el precio y la cantidad.",
+    });
     return true;
   }
   if (accion === "mas") {

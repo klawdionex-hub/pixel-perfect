@@ -161,7 +161,7 @@ export async function generarPdfCotizacion(d: DatosPdf): Promise<Uint8Array> {
     ["Correo", d.empresa.correo],
   ];
   const filasCliente: Array<[string, string]> = [
-    ["Cliente / empresa", d.cliente.nombre],
+    ...(d.cliente.nombre.trim() ? ([["Cliente / empresa", d.cliente.nombre]] as Array<[string, string]>) : []),
     ...(d.cliente.atencion ? ([["Atención a", d.cliente.atencion]] as Array<[string, string]>) : []),
     ...(d.cliente.proyecto ? ([["Proyecto", d.cliente.proyecto]] as Array<[string, string]>) : []),
     ...(d.cliente.telefono ? ([["Teléfono", d.cliente.telefono]] as Array<[string, string]>) : []),

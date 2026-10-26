@@ -193,7 +193,6 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
   }
 
   function validar() {
-    if (!cliente.nombre.trim()) return "Escriba el nombre del cliente.";
     if (cliente.telefono.trim()) {
       const r = revisarTelefono(cliente.telefono);
       if (!r.ok) return r.error;
@@ -226,7 +225,7 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
         .insert({
           solicitud_id: solicitudId || null,
           vendedor_id: vendedorId,
-          cliente_nombre: cliente.nombre.trim(),
+          cliente_nombre: cliente.nombre.trim() || "Sin nombre",
           cliente_telefono: cliente.telefono.trim() || null,
           atencion: cliente.atencion.trim() || null,
           correo: cliente.correo.trim() || null,
@@ -325,7 +324,7 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
         </div>
         <div>
           <Label>Cliente / empresa</Label>
-          <Input value={cliente.nombre} onChange={(e) => setCliente({ ...cliente, nombre: e.target.value })} />
+          <Input value={cliente.nombre} placeholder="Opcional: si lo deja vacío no aparece en el PDF" onChange={(e) => setCliente({ ...cliente, nombre: e.target.value })} />
         </div>
         <div>
           <Label>Teléfono</Label>
@@ -365,7 +364,7 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
                 value={f.equipo_id ?? ""}
                 onChange={(e) => elegirDelCatalogo(i, e.target.value)}
               >
-                <option value="">Concepto a mano</option>
+                <option value="">Producto o servicio a mano</option>
                 <optgroup label="Equipos">
                   {equipos.filter((e) => e.categoria !== CATEGORIA_SERVICIOS).map((e) => (
                     <option key={e.id} value={e.id}>
@@ -381,7 +380,7 @@ export function FormularioCotizacion({ solicitudInicial, alTerminar }: { solicit
                   ))}
                 </optgroup>
               </select>
-              <Input value={f.concepto} placeholder="Fabricación de portón elevadizo 3 x 2.4 m" onChange={(e) => setFilas((fs) => fs.map((x, j) => (j === i ? { ...x, concepto: e.target.value } : x)))} />
+              <Input value={f.concepto} placeholder="Escriba el producto o servicio, p. ej. Fabricación de portón 3 x 2.4 m" onChange={(e) => setFilas((fs) => fs.map((x, j) => (j === i ? { ...x, concepto: e.target.value } : x)))} />
               <Input inputMode="numeric" value={f.cantidad} onChange={(e) => setFilas((fs) => fs.map((x, j) => (j === i ? { ...x, cantidad: e.target.value } : x)))} />
               <Input inputMode="decimal" value={f.precio} placeholder="0" onChange={(e) => setFilas((fs) => fs.map((x, j) => (j === i ? { ...x, precio: e.target.value } : x)))} />
               <span className="text-right text-sm tabular-nums">{pesos(importe(p))}</span>
