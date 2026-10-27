@@ -445,7 +445,7 @@ function opcionesDeProspecto(s: Solicitud): Opcion[] {
       { id: `cmd:cotizar:${s.id}`, titulo: "Hacer cotización", descripcion: "Al generarla pasa a Mis cotizados", seccion: "Este prospecto" },
       { id: `todo:${s.id}`, titulo: "Ver todo del cliente", descripcion: "Datos, fotos, conversación y cotizaciones", seccion: "Este prospecto" },
       { id: `conv:${s.id}`, titulo: "Ver conversación", descripcion: "Lo que escribió al bot", seccion: "Este prospecto" },
-      { id: `res:2:${s.id}`, titulo: "Lo coticé por fuera", descripcion: "Pasa a Mis cotizados sin hacer el PDF", seccion: "Resultado" },
+      { id: `res:2:${s.id}`, titulo: "Cotizado", descripcion: "Pasa a Mis cotizados (si no hizo el PDF en el bot)", seccion: "Resultado" },
       { id: `res:n:${s.id}`, titulo: "No le interesó", seccion: "Resultado" },
       { id: `res:0:${s.id}`, titulo: "Perdido", seccion: "Resultado" },
       { id: `res:=:${s.id}`, titulo: "Sin cambios", descripcion: "Le vuelvo a preguntar más adelante", seccion: "Resultado" },
@@ -876,7 +876,6 @@ export async function procesarMensajeVendedor(
   if (id === "cmd:mas") return enviarMenu(db, canal, v, true);
   if (id === "cmd:mis") return enviarMisProspectos(db, canal, v, "ficha", "prospectos");
   if (id === "cmd:cotizados") return enviarMisProspectos(db, canal, v, "ficha", "cotizados");
-  // "Registrar resultado" ya no está en el menú, pero sigue funcionando desde listas y avisos anteriores.
   if (id === "cmd:resultado") return enviarMisProspectos(db, canal, v, "seg", "todos");
   if ((accion === "todo" || accion === "vcot") && a) {
     if (await asignadoAOtro(db, canal, v, a)) return;
@@ -1076,6 +1075,7 @@ async function materialesPara(db: DB, v: Vendedor): Promise<Material[]> {
 const MENU_FIJO: Opcion[] = [
   { id: "cmd:mis", titulo: "Mis prospectos", descripcion: "Aún sin cotizar: datos y qué pasó", seccion: "Prospectos" },
   { id: "cmd:cotizados", titulo: "Mis cotizados", descripcion: "Su cotización y el resultado", seccion: "Prospectos" },
+  { id: "cmd:resultado", titulo: "Registrar resultado", descripcion: "De cualquier prospecto, sin entrar a la lista", seccion: "Prospectos" },
   { id: "cmd:pendientes", titulo: "Prospectos sin vendedor", descripcion: "Para tomar uno", seccion: "Prospectos" },
   { id: "cmd:ventas", titulo: "Ventas y comisión", descripcion: "Del mes en curso", seccion: "Mis ventas" },
   { id: "cmd:catalogo", titulo: "Catálogo de equipos", descripcion: "Fotos para enviar al cliente", seccion: "Catálogo" },
@@ -1114,9 +1114,9 @@ async function enviarMenu(db: DB, canal: Canal, v: Vendedor, mas = false, o: { t
   const extras = [
     ...(enCurso ? [{ id: "cot:seguir", titulo: "Continuar cotización", descripcion: enCurso.cliente.nombre ? `Para ${enCurso.cliente.nombre}` : "Donde se quedó", seccion: "En curso" }] : []),
     ...(o.extras ?? []),
-  ].slice(0, 2);
+  ].slice(0, materiales.length ? 1 : 2);
   const espacio = 10 - MENU_FIJO.length - extras.length;
-  const enPrimera = materiales.length > espacio ? espacio - 1 : espacio;
+  const enPrimera = Math.max(0, materiales.length > espacio ? espacio - 1 : espacio);
   if (mas) {
     const resto = materiales.slice(enPrimera, enPrimera + 9).map(opcionMaterial);
     return responder(canal, v, {
@@ -1203,7 +1203,7 @@ async function enviarCotizacionDe(db: DB, canal: Canal, v: Vendedor, s: Solicitu
   const cots = await cotizacionesDe(db, s.id);
   const ultima = cots[0];
   if (!ultima?.pdf_url) {
-    return opcionesTras(db, canal, v, s, `El prospecto ${folio(s)} no tiene una cotización hecha en el bot (se registró como cotizado por fuera). Puede hacerla con *Volver a cotizar*.`);
+    return opcionesTras(db, canal, v, s, `El prospecto ${folio(s)} no tiene una cotización hecha en el bot (se registró como cotizado sin hacer el PDF en el bot). Puede hacerla con *Volver a cotizar*.`);
   }
   await responder(canal, v, { tipo: "documento", url: ultima.pdf_url, nombre: `${ultima.folio ?? "Cotización"} ${ultima.cliente_nombre}.pdf` });
   const anteriores = cots.slice(1).map((c) => `· ${c.folio ?? "COT"} · ${moneda(c.total)} · ${fechaCorta(c.creada_en)}`);
