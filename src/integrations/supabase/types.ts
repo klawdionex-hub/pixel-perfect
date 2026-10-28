@@ -1085,6 +1085,7 @@ export type Database = {
           estado_bot: Json
           id: string
           nombre: string
+          recibe_directo: boolean
           recibe_resumen_semanal: boolean
           ultimo_mensaje_wa: string | null
           whatsapp: string | null
@@ -1096,6 +1097,7 @@ export type Database = {
           estado_bot?: Json
           id: string
           nombre?: string
+          recibe_directo?: boolean
           recibe_resumen_semanal?: boolean
           ultimo_mensaje_wa?: string | null
           whatsapp?: string | null
@@ -1107,6 +1109,7 @@ export type Database = {
           estado_bot?: Json
           id?: string
           nombre?: string
+          recibe_directo?: boolean
           recibe_resumen_semanal?: boolean
           ultimo_mensaje_wa?: string | null
           whatsapp?: string | null
