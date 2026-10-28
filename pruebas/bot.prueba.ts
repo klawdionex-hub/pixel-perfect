@@ -796,5 +796,41 @@ afirmar(nombreTarjeta({ numero: 7, codigo: "3-1-0007", contactos: { nombre: null
   afirmar(log.at(-1)!.includes("Programar controles"), "búsqueda escrita: manual modelo 300");
 }
 
+// --- Recibe directo: el cliente nuevo llega completo, sin tomar la ficha
+{
+  const ana = tablas["usuarios_perfil"]!.find((u) => u.id === "v2")!;
+  ana.recibe_directo = true;
+  ana.ultimo_mensaje_wa = reloj.ahora.toISOString();
+  tablas["usuarios_perfil"]!.push({ id: "v3", nombre: "Luis", whatsapp: "5533330000", activo: true, es_vendedor: true, recibe_directo: true, ultimo_mensaje_wa: null, estado_bot: {} });
+  const D = "+525544445555";
+  marca = log.length;
+  for (const t of ["Hola", "Marta Ruiz", "1", "Chalco", "elevadizo", "Sí, ya lo tengo", "3 x 2.4 m", "omitir", "tarde"]) await cliente(D, t);
+  const sD = solDe(D)!;
+  const aAna = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Ana"));
+  const aCarlos = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Carlos"));
+  const aLuis = log.slice(marca).filter((l) => l.startsWith("VENDEDOR Luis"));
+  afirmar(aAna.some((l) => l.includes("Cliente nuevo")) && aAna.some((l) => l.includes("[Contacto] Marta Ruiz")) && aAna.some((l) => l.includes("Teléfono:")), "recibe directo: llega la tarjeta y los datos completos");
+  afirmar(aAna.at(-1)!.includes("Hacer cotización") && aAna.at(-1)!.includes("Registrar resultado") && !sD.vendedor_id, "recibe directo: botones y el cliente aún sin dueño");
+  afirmar(aCarlos.length === 1 && aCarlos[0]!.includes("afpam_solicitud_recibida") && !aCarlos[0]!.includes("Marta") && !aCarlos[0]!.includes("544 445"), "quien no recibe directo sigue con la ficha sin datos");
+  afirmar(aLuis.length === 1 && aLuis[0]!.includes("afpam_solicitud_recibida"), "recibe directo fuera de las 24 h: llega la plantilla");
+  marca = log.length;
+  await vendedor("v3", "Ver detalles", `ver:${sD.id}`);
+  afirmar(log.slice(marca).some((l) => l.includes("[Contacto] Marta Ruiz")), "recibe directo: al tocar Ver detalles le llega todo");
+  marca = log.length;
+  await vendedor("v2", String(sD.numero));
+  afirmar(log.slice(marca).some((l) => l.includes("Le envío toda la información")), "recibe directo: el número del cliente sin dueño manda todo");
+  marca = log.length;
+  await vendedor("v2", "Cotizado", `res:2:${sD.id}`);
+  afirmar(sD.vendedor_id === "v2" && sD.etapa === 2, "el primero que registra un resultado se queda con el cliente");
+  const despues = log.slice(marca);
+  afirmar(despues.some((l) => l.startsWith("VENDEDOR Carlos") && l.includes("afpam_prospecto_asignado") && l.includes("Ana")), "a quien usa fichas se le avisa que ya no está disponible");
+  afirmar(despues.some((l) => l.startsWith("VENDEDOR Luis") && l.includes("ya lo atiende Ana") && l.includes("escríbale desde su número")), "a otro de recibe directo: ya lo atiende y puede escribirle");
+  marca = log.length;
+  await vendedor("v3", "Cotizado", `res:2:${sD.id}`);
+  afirmar(log.at(-1)!.includes("asignado a Ana") && sD.vendedor_id === "v2", "el otro ya no puede registrar su resultado");
+  ana.recibe_directo = false;
+  tablas["usuarios_perfil"]!.pop();
+}
+
 console.log(fallos ? `\n${fallos} PRUEBA(S) FALLARON` : "\nTODAS LAS PRUEBAS PASARON");
 if (fallos) process.exitCode = 1;

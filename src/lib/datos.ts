@@ -63,6 +63,7 @@ export type UsuarioPerfil = {
   nombre: string;
   whatsapp: string | null;
   es_vendedor: boolean;
+  recibe_directo: boolean;
   recibe_resumen_semanal: boolean;
   activo: boolean;
   estado_bot?: unknown;

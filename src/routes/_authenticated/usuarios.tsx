@@ -120,12 +120,20 @@ function Pagina() {
           <div className="flex items-center gap-2"><Switch checked={f.es_vendedor} onCheckedChange={(v) => setF({ ...f, es_vendedor: v })} /><Label>Es vendedor</Label></div>
           <Button className="w-full" disabled={enviando} onClick={alta}>Crear usuario</Button>
         </div>
-        <Tabla encabezados={["Nombre", "WhatsApp", "Vendedor", "Administrador", "Resumen semanal", "Activo", "Último aviso por WhatsApp"]}>
+        <Tabla encabezados={["Nombre", "WhatsApp", "Vendedor", "Recibe directo", "Administrador", "Resumen semanal", "Activo", "Último aviso por WhatsApp"]}>
           {(q.data ?? []).map((u) => (
             <tr key={u.id}>
               <Celda><Input defaultValue={u.nombre} onBlur={(e) => e.target.value !== u.nombre && actualizar(u.id, { nombre: e.target.value })} /></Celda>
               <Celda><Input defaultValue={u.whatsapp ?? ""} onBlur={(e) => actualizar(u.id, { whatsapp: e.target.value || null })} /></Celda>
               <Celda><Switch checked={u.es_vendedor} onCheckedChange={(v) => actualizar(u.id, { es_vendedor: v })} /></Celda>
+              <Celda>
+                <Switch
+                  checked={u.es_vendedor && u.recibe_directo}
+                  disabled={!u.es_vendedor}
+                  title="Le llegan completos los clientes nuevos (tarjeta, datos y conversación), sin tomar la ficha"
+                  onCheckedChange={(v) => actualizar(u.id, { recibe_directo: v })}
+                />
+              </Celda>
               <Celda>
                 <Switch
                   checked={administradores.includes(u.id)}

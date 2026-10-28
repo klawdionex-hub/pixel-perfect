@@ -10,7 +10,7 @@ import { generarPdfCotizacion } from "@/lib/cotizaciones/pdf";
 import { CATEGORIAS_EQUIPO, CATEGORIA_SERVICIOS, indiceCategoria } from "./equipos";
 import type { Canal } from "./motor.server";
 import { normalizarTelefono, type Opcion, type Salida } from "./salida";
-import { etiquetaProspecto, otraAccion, responder, type Vendedor } from "./vendedores.server";
+import { asignarSiLibre, etiquetaProspecto, otraAccion, responder, type Vendedor } from "./vendedores.server";
 
 type DB = SupabaseClient<Database>;
 type Equipo = Database["public"]["Tables"]["equipos_catalogo"]["Row"];
@@ -605,8 +605,11 @@ async function generar(db: DB, canal: Canal, v: Vendedor, b: BorradorCot, conMar
   const url = await canal.guardarArchivo(`cotizaciones/${cot.folio}-${crypto.randomUUID().slice(0, 8)}.pdf`, bytes, "application/pdf");
   await db.from("cotizaciones").update({ pdf_url: url }).eq("id", cot.id);
 
-  // El prospecto pasa a "Cotizado" si estaba como nuevo.
-  if (b.solicitud_id) await db.from("solicitudes").update({ etapa: 2 }).eq("id", b.solicitud_id).eq("etapa", 1);
+  // Si el prospecto no tenía dueño, queda a nombre de quien lo cotizó; pasa a "Cotizado" si estaba como nuevo.
+  if (b.solicitud_id) {
+    await asignarSiLibre(db, canal, v, b.solicitud_id, ahora);
+    await db.from("solicitudes").update({ etapa: 2 }).eq("id", b.solicitud_id).eq("vendedor_id", v.id).eq("etapa", 1);
+  }
   await guardar(db, v, null);
 
   await responder(canal, v, { tipo: "documento", url, nombre: `${nombreArchivo}.pdf` });
