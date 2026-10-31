@@ -29,6 +29,16 @@ export const Route = createFileRoute("/auth")({
   component: PaginaAuth,
 });
 
+/** Motivo en español de un error al entrar, para saber qué revisar. */
+function motivoDeError(mensaje: string) {
+  if (/invalid login credentials/i.test(mensaje)) return "El correo o la contraseña no coinciden. Revise que no tenga mayúsculas o espacios de más.";
+  if (/not confirmed/i.test(mensaje)) return "Esta cuenta aún no está confirmada. El administrador debe confirmarla en Lovable Cloud → Users.";
+  if (/banned|disabled/i.test(mensaje)) return "Esta cuenta está bloqueada. El administrador debe desbloquearla en Lovable Cloud → Users.";
+  if (/rate|too many/i.test(mensaje)) return "Demasiados intentos seguidos. Espere unos minutos y vuelva a intentar.";
+  if (/fetch|network|failed to/i.test(mensaje)) return "No hay conexión con el servidor. Revise su internet e intente de nuevo.";
+  return `No pudimos iniciar sesión (${mensaje}).`;
+}
+
 function PaginaAuth() {
   const navigate = useNavigate();
   const { next } = Route.useSearch();
@@ -46,7 +56,7 @@ function PaginaAuth() {
     const { error } = await supabase.auth.signInWithPassword({ email: correo, password });
     setCargando(false);
     if (error) {
-      setError("No pudimos iniciar sesión. Verifique su correo y contraseña.");
+      setError(motivoDeError(error.message));
       return;
     }
     if (next !== "/") window.location.assign(next);
@@ -65,7 +75,11 @@ function PaginaAuth() {
       setError("Ya se envió un enlace hace poco. Espere un minuto antes de pedir otro.");
       return;
     }
-    // Por seguridad no se indica si el correo existe o no.
+    // El sistema no dice si el correo existe; un error aquí es una falla del envío.
+    if (error) {
+      setError(`No se pudo enviar el correo (${error.message}). Pida al administrador que cambie su contraseña desde Lovable Cloud → Users.`);
+      return;
+    }
     setEnviado(true);
   }
 
