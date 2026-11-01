@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { EncabezadoPagina } from "@/components/AppLayout";
@@ -7,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { traerContactos, traerSolicitudes, traerUsuarios, traerServicios } from "@/lib/datos";
 import { ETAPAS } from "@/lib/afpam";
 import { cabeza } from "@/lib/cabeza";
+import { respaldoCompleto } from "@/lib/respaldo.functions";
 
 export const Route = createFileRoute("/_authenticated/exportar")({
   head: () => cabeza("Exportar", "Descarga de solicitudes y contactos en Excel."),
@@ -15,6 +17,27 @@ export const Route = createFileRoute("/_authenticated/exportar")({
 
 function Pagina() {
   const [cargando, setCargando] = useState(false);
+  const [respaldando, setRespaldando] = useState(false);
+  const respaldar = useServerFn(respaldoCompleto);
+
+  async function descargarRespaldo() {
+    setRespaldando(true);
+    try {
+      const r = await respaldar();
+      const blob = new Blob([JSON.stringify(r)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `afpam_respaldo_completo_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      const filas = Object.values(r.cuantos).reduce((n, x) => n + x, 0);
+      toast.success(`Respaldo descargado: ${filas} registros, ${r.archivos.length} archivos y ${r.usuarios.length} usuarios.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo hacer el respaldo");
+    } finally {
+      setRespaldando(false);
+    }
+  }
 
   async function exportar() {
     setCargando(true);
@@ -55,6 +78,17 @@ function Pagina() {
         <div className="max-w-md rounded-md border border-border bg-card p-6">
           <p className="text-sm text-muted-foreground">Incluye una hoja de solicitudes y otra de contactos.</p>
           <Button className="mt-4" onClick={exportar} disabled={cargando}>{cargando ? "Generando..." : "Descargar Excel"}</Button>
+        </div>
+        <div className="mt-6 max-w-md rounded-md border border-border bg-card p-6">
+          <h2 className="text-base">Respaldo completo</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Todo lo del programa en un solo archivo, para poder pasarlo a otro servidor: clientes, conversaciones, prospectos, cotizaciones,
+            catálogo, manuales, configuración del bot y la lista de fotos y PDF. Las contraseñas no se incluyen. Guárdelo en un lugar seguro:
+            trae los datos de todos los clientes. Solo para administradores.
+          </p>
+          <Button className="mt-4" variant="outline" onClick={descargarRespaldo} disabled={respaldando}>
+            {respaldando ? "Preparando respaldo..." : "Descargar respaldo completo"}
+          </Button>
         </div>
       </div>
     </div>
