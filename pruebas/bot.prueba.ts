@@ -666,6 +666,54 @@ marca = log.length;
 await vendedor("v1", "Lo tomo", `tomar:${tablas["solicitudes"]!.find((x) => !x.vendedor_id && x.etapa === 1)?.id ?? px!.id}`);
 afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Carlos") && l.includes("Hacer cotización") && l.includes("Menú")), "después de Lo tomo llega el botón de Menú");
 
+// --- Esperando el motivo o el monto: escribir un número de prospecto es el atajo, no la respuesta
+{
+  const abiertos = tablas["solicitudes"]!.filter((x) => x.etapa === 1 && x.vendedor_id !== "v2").slice(0, 3);
+  for (const x of abiertos) x.vendedor_id = "v1";
+  const [pa, pb, pc] = abiertos;
+  const num = (x: (typeof abiertos)[number]) => String(x.numero).padStart(4, "0");
+  await vendedor("v1", "Perdido", `res:0:${pa!.id}`);
+  const notasAntes = pa!.notas;
+  marca = log.length;
+  await vendedor("v1", num(pc!));
+  afirmar(pa!.notas === notasAntes && log.slice(marca).some((l) => l.includes("Le envío toda la información")), "esperando el motivo, un número de prospecto es el atajo y no se guarda como motivo");
+  await vendedor("v1", "Vendido", `res:4:${pb!.id}`);
+  marca = log.length;
+  await vendedor("v1", num(pc!));
+  afirmar(pb!.monto_venta == null && log.slice(marca).some((l) => l.includes("Le envío toda la información")), "esperando el monto, 0127 es el atajo y no una venta de $127");
+  await vendedor("v1", "Vendido", `res:4:${pc!.id}`);
+  await vendedor("v1", "12500");
+  afirmar(Number(pc!.monto_venta) === 12500, "un monto normal se sigue registrando");
+  const [pd] = tablas["solicitudes"]!.filter((x) => x.etapa === 1 && !x.vendedor_id);
+  if (pd) {
+    pd.vendedor_id = "v1";
+    await vendedor("v1", "Perdido", `res:0:${pd.id}`);
+    const antes = reloj.ahora;
+    reloj.ahora = new Date(antes.getTime() + 3 * 3600000);
+    await vendedor("v1", "se fue con la competencia");
+    afirmar(!String(pd.notas ?? "").includes("competencia"), "pasadas 2 horas ya no se espera el motivo");
+    reloj.ahora = antes;
+  }
+}
+
+// --- "Recordatorios de resultado" apagado en Usuarios: al vendedor no se le pide el resultado
+{
+  const antes = reloj.ahora;
+  reloj.ahora = new Date("2026-10-20T17:00:00Z"); // martes 11:00 en Ciudad de México
+  const suyos = tablas["solicitudes"]!.filter((x) => x.vendedor_id === "v1" && [1, 2, 3].includes(x.etapa as number));
+  for (const x of suyos) Object.assign(x, { tomada_en: new Date(reloj.ahora.getTime() - 30 * 3600000).toISOString(), control_bot: {} });
+  const extra = config.textos_extra as Record<string, string>;
+  extra["sin_recordatorio_resultado"] = "v1";
+  marca = log.length;
+  await tareasVendedores(db, canal, reloj.ahora);
+  afirmar(suyos.length > 0 && !log.slice(marca).some((l) => l.startsWith("VENDEDOR Carlos") && /Seguimiento del prospecto|seguimiento_asignado/.test(l)), "con el recordatorio apagado no se le pide el resultado");
+  extra["sin_recordatorio_resultado"] = "";
+  marca = log.length;
+  await tareasVendedores(db, canal, reloj.ahora);
+  afirmar(log.slice(marca).some((l) => l.startsWith("VENDEDOR Carlos") && /Seguimiento del prospecto|seguimiento_asignado/.test(l)), "con el recordatorio encendido sí se le pide");
+  reloj.ahora = antes;
+}
+
 // --- Prospecto sin tomar: ficha resumida sin fotos; las fotos llegan una sola vez al tomarlo
 const sinTomarConFoto = { id: "st1", contacto_id: tablas["contactos"]![0]!.id, etapa: 1, vendedor_id: null, tomada_en: null, servicio_codigo: 3, codigo: "3-1-0999", numero: 999, datos: { medidas: "3 x 2.4 m" }, completa: true, urgente: false, fuera_de_zona: false, fuera_de_horario: false, notas: null, control_bot: {}, es_ejemplo: false, creada_en: reloj.ahora.toISOString() };
 tablas["solicitudes"]!.push(sinTomarConFoto);

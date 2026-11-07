@@ -51,6 +51,8 @@ function Pagina() {
   const config = useQuery({ queryKey: claves.configuracion, queryFn: traerConfiguracion });
   const extra = (config.data?.["textos_extra"] ?? {}) as Record<string, string>;
   const administradores = String(extra["administradores"] ?? "").split(",").filter(Boolean);
+  // Vendedores a los que el bot NO les pide registrar el resultado de sus prospectos.
+  const sinRecordatorio = String(extra["sin_recordatorio_resultado"] ?? "").split(",").filter(Boolean);
   const crear = useServerFn(crearUsuario);
   const [f, setF] = useState({ correo: "", contrasena: "", nombre: "", whatsapp: "", es_vendedor: true });
   const [enviando, setEnviando] = useState(false);
@@ -70,15 +72,17 @@ function Pagina() {
     }
   }
 
-  async function cambiarAdministrador(id: string, si: boolean) {
-    const lista = si ? [...new Set([...administradores, id])] : administradores.filter((x) => x !== id);
+  /** Agrega o quita a alguien de una lista guardada en configuracion.textos_extra (administradores, sin recordatorio…). */
+  async function cambiarLista(clave: string, actual: string[], id: string, si: boolean) {
+    const lista = si ? [...new Set([...actual, id])] : actual.filter((x) => x !== id);
     const { error } = await supabase
       .from("configuracion")
-      .update({ textos_extra: { ...extra, administradores: lista.join(",") } } as never)
+      .update({ textos_extra: { ...extra, [clave]: lista.join(",") } } as never)
       .eq("id", true);
     if (error) { toast.error(error.message); return; }
     qc.invalidateQueries({ queryKey: claves.configuracion });
   }
+  const cambiarAdministrador = (id: string, si: boolean) => cambiarLista("administradores", administradores, id, si);
 
   async function actualizar(id: string, cambios: Partial<Omit<UsuarioPerfil, "estado_bot">>) {
     const { error } = await supabase.from("usuarios_perfil").update(cambios).eq("id", id);
@@ -120,7 +124,7 @@ function Pagina() {
           <div className="flex items-center gap-2"><Switch checked={f.es_vendedor} onCheckedChange={(v) => setF({ ...f, es_vendedor: v })} /><Label>Es vendedor</Label></div>
           <Button className="w-full" disabled={enviando} onClick={alta}>Crear usuario</Button>
         </div>
-        <Tabla encabezados={["Nombre", "WhatsApp", "Vendedor", "Recibe directo", "Administrador", "Resumen semanal", "Activo", "Último aviso por WhatsApp"]}>
+        <Tabla encabezados={["Nombre", "WhatsApp", "Vendedor", "Recibe directo", "Recordatorios de resultado", "Administrador", "Resumen semanal", "Activo", "Último aviso por WhatsApp"]}>
           {(q.data ?? []).map((u) => (
             <tr key={u.id}>
               <Celda><Input defaultValue={u.nombre} onBlur={(e) => e.target.value !== u.nombre && actualizar(u.id, { nombre: e.target.value })} /></Celda>
@@ -132,6 +136,14 @@ function Pagina() {
                   disabled={!u.es_vendedor}
                   title="Le llegan completos los clientes nuevos (tarjeta, datos y conversación), sin tomar la ficha"
                   onCheckedChange={(v) => actualizar(u.id, { recibe_directo: v })}
+                />
+              </Celda>
+              <Celda>
+                <Switch
+                  checked={u.es_vendedor && !sinRecordatorio.includes(u.id)}
+                  disabled={!u.es_vendedor || !config.data}
+                  title="El bot le pide registrar el resultado de sus prospectos (Cotizado, Vendido, Perdido…). Apagado: no se le pregunta, pero puede registrarlo él cuando quiera."
+                  onCheckedChange={(v) => void cambiarLista("sin_recordatorio_resultado", sinRecordatorio, u.id, !v)}
                 />
               </Celda>
               <Celda>

@@ -1062,8 +1062,12 @@ export async function procesarMensajeVendedor(
     });
   }
 
-  const vigente = estado.esperando && estado.esperando !== "varios" && estado.solicitud_id && horasDesde(estado.desde, ahora) < 24;
-  if (vigente && texto) {
+  // El monto o el motivo se esperan 2 horas. Si en ese tiempo escribe solo un número de prospecto (0127, #127, 2-0-0127)
+  // es el atajo, no la respuesta: un motivo nunca es solo un número y un monto no empieza con 0 ni con #.
+  const vigente = estado.esperando && estado.esperando !== "varios" && estado.solicitud_id && horasDesde(estado.desde, ahora) < 2;
+  const esAtajo = /^#?\s*(?:\d{1,2}-\d{1,2}-)?\d{1,6}$/.test(texto) && (estado.esperando === "motivo" || /^(#|0|\d{1,2}-\d)/.test(texto));
+  if (vigente && texto && esAtajo) await guardarEstadoVendedor(db, v, {});
+  else if (vigente && texto) {
     if (/^cancelar$/i.test(texto)) {
       await guardarEstadoVendedor(db, v, {});
       return responder(canal, v, { tipo: "texto", texto: "Cancelado. No se registró ningún cambio." });
@@ -1673,6 +1677,8 @@ export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date())
   const maxDia = Number(config?.max_recordatorios_vendedor_dia ?? 2);
   const horasSeg = Number(config?.horas_seguimiento_resultado ?? 24);
   const diasRep = Number(config?.dias_seguimiento_repetido ?? 3);
+  // Vendedores que apagaron "Recordatorios de resultado" en Usuarios.
+  const sinRecordatorio = String(((config?.textos_extra ?? {}) as Record<string, string>)["sin_recordatorio_resultado"] ?? "").split(",").filter(Boolean);
   const hoy = fechaLocal(ahora).dia;
 
   // Archivado semanal: lo que nadie tomó antes del sábado a las 14:00.
@@ -1741,7 +1747,7 @@ export async function tareasVendedores(db: DB, canal: Canal, ahora = new Date())
       : horasDesde(s.tomada_en, ahora) >= horasSeg;
     if (!toca) continue;
     const v = vendedores.find((x) => x.id === s.vendedor_id);
-    if (!v) continue;
+    if (!v || sinRecordatorio.includes(v.id)) continue;
     await enviarAVendedor(db, canal, v, ahora, preguntaSeguimiento(s), {
       nombre: PLANTILLAS_VENDEDORES.seguimiento,
       parametros: [folio(s), s.contactos?.nombre ?? "Sin nombre", s.contactos?.municipio ?? "sin municipio"],
