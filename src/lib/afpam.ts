@@ -124,6 +124,7 @@ export const ETIQUETAS_DATOS: Record<string, string> = {
   zona: "Zona",
   abandono_en: "Dejó la encuesta en",
   pedido_cliente: "Lo que escribió el cliente",
+  tipo_descrito: "Tipo de portón (como lo describió)",
   fuera_encuesta: "Escribió fuera de la encuesta",
   color: "Color",
   observaciones: "Observaciones",

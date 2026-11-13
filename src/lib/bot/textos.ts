@@ -32,6 +32,12 @@ export type ClaveTexto =
   | "seguimiento"
   | "recordatorio_1"
   | "recordatorio_2"
+  | "inicio_directo"
+  | "pregunta_nombre_final"
+  | "solo_precio"
+  | "solo_precio_municipio"
+  | "eco_asesor"
+  | "proveedor"
   | "respuesta_vendedor";
 
 /**
@@ -212,6 +218,31 @@ export const TEXTOS: Record<ClaveTexto, DefTexto> = {
     etiqueta: "Respuesta cuando escribe un vendedor",
     porDefecto:
       "Buen día, {nombre}. Este número es el asistente de AFPAM Texcoco. Aquí recibirá los avisos de nuevos prospectos.",
+  },
+  inicio_directo: {
+    etiqueta: "Cuando el primer mensaje ya dice qué necesita ({servicio})",
+    porDefecto: "Con gusto le ayudo con {servicio}.",
+  },
+  pregunta_nombre_final: {
+    etiqueta: "Nombre al final (a quien empezó diciendo qué necesita; puede omitirlo)",
+    porDefecto: "Por último, ¿a nombre de quién registramos su solicitud?",
+  },
+  solo_precio: {
+    etiqueta: "Cliente que solo quiere el precio (ya se sabe su municipio)",
+    porDefecto: "Entendido, sin más preguntas. Le paso con un asesor para darle el precio; en breve le escribe.",
+  },
+  solo_precio_municipio: {
+    etiqueta: "Cliente que solo quiere el precio (falta su municipio)",
+    porDefecto: "Entendido, sin más preguntas. Solo dígame en qué municipio está y le paso con un asesor para darle el precio.",
+  },
+  eco_asesor: {
+    etiqueta: "Cliente que ya pasó con asesor vuelve a escribir ({asesor})",
+    porDefecto: "Ya le avisé de nuevo a {asesor}. En breve le contesta.",
+  },
+  proveedor: {
+    etiqueta: "Respuesta a proveedores y publicidad (no se avisa a los vendedores)",
+    porDefecto:
+      "Gracias por su mensaje. Este número es para atención a clientes de AFPAM Texcoco; si nos interesa su propuesta, nos comunicaremos con usted.",
   },
 };
 

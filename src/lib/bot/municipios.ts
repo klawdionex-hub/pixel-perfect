@@ -44,6 +44,17 @@ const FUERA = [
 const contiene = (texto: string, nombre: string) => ` ${texto} `.includes(` ${nombre} `);
 
 /**
+ * El municipio que se menciona dentro de un mensaje más largo ("Vivo en Acolman, quiero automatizar…" → "Acolman").
+ * Solo municipios del Estado de México con nombre propio (no "estado de méxico" ni "edomex"); el más largo gana.
+ */
+export function municipioEnTexto(texto: string): string | undefined {
+  const t = normal(texto);
+  const genericos = new Set(["estado de mexico", "edomex", "edo mex", "edo de mexico", "la paz", "el oro", "rayon", "chapultepec", "santo tomas"]);
+  const hallado = EDOMEX.filter((m) => !genericos.has(m) && contiene(t, m)).sort((a, b) => b.length - a.length)[0];
+  return hallado?.replace(/(^|\s)\p{L}/gu, (x) => x.toUpperCase());
+}
+
+/**
  * "edomex" si se reconoce un municipio del Estado de México, "fuera" si es Ciudad de México u otro estado,
  * "desconocida" si no se reconoce (el vendedor lo confirma).
  * El Estado de México gana si aparecen los dos (hay colonias con nombre de alcaldías, p. ej. "Benito Juárez, Neza").

@@ -19,4 +19,5 @@ export const NOMBRE_PASO: Record<string, string> = {
   urgente: "Urgencia",
   ultimo_mantenimiento: "Último mantenimiento",
   horario: "Horario",
+  nombre_final: "Nombre (al final)",
 };

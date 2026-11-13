@@ -7,8 +7,8 @@ import { enHorarioLaboral, horaDeEscribirClientes, texto, type ClaveTexto, type 
 import { avisarNuevoProspecto, reenviarMensajeCliente, tareasVendedores } from "./vendedores.server";
 import { leerCoordenadas } from "./coordenadas";
 import { interesDe, pareceUrgente } from "@/lib/afpam";
-import { detectarIntencion, pareceNoNombre, type Intencion } from "./intencion";
-import { zonaDeMunicipio } from "./municipios";
+import { detectarIntencion, esCortesia, esImpaciencia, esProveedor, extraerMedidas, pareceNoNombre, soloQuierePrecio, tienePortonDe, type Intencion } from "./intencion";
+import { municipioEnTexto, zonaDeMunicipio } from "./municipios";
 import { NOMBRE_PASO } from "./pasos";
 
 type DB = SupabaseClient<Database>;
@@ -59,6 +59,7 @@ type Respuestas = Partial<
     | "zona"
     | "abandono_en"
     | "pedido_cliente"
+    | "tipo_descrito"
     | "fuera_encuesta",
     string
   >
@@ -77,6 +78,10 @@ type DatosSesion = {
   fuera?: string[] | undefined;
   /** Lo que el cliente pidió escribiendo (en lugar de su nombre); se usa al tener el nombre. */
   pendiente?: { texto: string; intencion: Intencion } | undefined;
+  /** Dijo "solo quiero el precio": se le pide solo el municipio y pasa con un asesor. */
+  soloPrecio?: boolean | undefined;
+  /** Última vez que se le contestó "ya le avisé a su asesor" (para no repetirlo en cada mensaje). */
+  ultimo_eco?: string | undefined;
 };
 
 type Estado = {
@@ -335,7 +340,8 @@ type Paso =
   | "falla"
   | "urgente"
   | "ultimo_mantenimiento"
-  | "horario";
+  | "horario"
+  | "nombre_final";
 
 function preguntaDe(ses: Sesion, paso: Paso): Salida {
   const t = (c: ClaveTexto) => texto(ses.config, c, { nombre: ses.contacto.nombre });
@@ -378,6 +384,8 @@ function preguntaDe(ses: Sesion, paso: Paso): Salida {
       return { tipo: "lista", texto: t("pregunta_ultimo_mantenimiento"), boton: "Ver opciones", opciones: ULTIMO_MANT };
     case "horario":
       return { tipo: "botones", texto: t("pregunta_horario"), opciones: HORARIOS };
+    case "nombre_final":
+      return { tipo: "botones", texto: t("pregunta_nombre_final"), opciones: OMITIR };
   }
 }
 
@@ -431,6 +439,23 @@ async function iniciarPorIntencion(ses: Sesion, it: Intencion, texto: string): P
     d.servicio = it.tipoPorton;
     quitar("tipo_instalacion");
   }
+  // Lo que ya dijo en ese mismo mensaje no se le vuelve a preguntar: medidas, si ya tiene portón y municipio.
+  const medidas = flujo === "instalacion" ? extraerMedidas(texto) : undefined;
+  if (medidas) {
+    respuestas(ses).medidas = medidas;
+    quitar("medidas");
+  }
+  const porton = flujo === "instalacion" ? tienePortonDe(texto) : undefined;
+  if (porton) {
+    respuestas(ses).tiene_porton = porton;
+    quitar("tiene_porton");
+  }
+  const municipio = ses.contacto.municipio ? undefined : municipioEnTexto(texto);
+  if (municipio) {
+    await guardarMunicipio(ses, municipio);
+    quitar("municipio");
+  }
+  if (pareceUrgente(texto)) d.urgente = true;
   if ((flujo === "reparacion" || flujo === "mantenimiento") && it.tipoPorton) {
     d.equipo = it.tipoPorton;
     quitar("equipo");
@@ -442,6 +467,48 @@ async function iniciarPorIntencion(ses: Sesion, it: Intencion, texto: string): P
     return "municipio";
   }
   return primero === "tipo_instalacion" || primero === "equipo" ? pasoDeServicio(ses) : primero;
+}
+
+/** Guarda el municipio y deduce la zona (Estado de México, fuera o por confirmar). */
+async function guardarMunicipio(ses: Sesion, m: string) {
+  ses.contacto.municipio = m;
+  const zona = zonaDeMunicipio(m);
+  const cambios: { municipio: string; en_estado_de_mexico?: boolean } = { municipio: m };
+  if (zona === "edomex") cambios.en_estado_de_mexico = true;
+  if (zona === "fuera") {
+    cambios.en_estado_de_mexico = false;
+    ses.estado.datos.fuera_de_zona = true;
+    // En compra de equipo puede haber envío; en instalación se avisa que la cobertura es el Estado de México.
+    if (ses.estado.datos.flujo !== "compra") await enviar(ses, { tipo: "texto", texto: texto(ses.config, "fuera_de_zona") });
+  }
+  if (zona === "desconocida") respuestas(ses).zona = "Por confirmar";
+  ses.contacto.en_estado_de_mexico = cambios.en_estado_de_mexico ?? ses.contacto.en_estado_de_mexico;
+  await ses.db.from("contactos").update(cambios).eq("id", ses.contacto.id);
+}
+
+/** Si el cliente ya contestó esa pregunta (en su primer mensaje o de paso), se salta a la siguiente. */
+function saltarRespondidas(ses: Sesion, res: Resultado): Resultado {
+  const d = ses.estado.datos;
+  const r = respuestas(ses);
+  for (let i = 0; i < 8; i++) {
+    if (res === "municipio" && d.flujo && ses.contacto.municipio && !d.soloPrecio) res = d.flujo === "compra" ? "cerrar" : pasoDeServicio(ses);
+    else if (res === "tipo_instalacion" && d.servicio) res = "tiene_porton";
+    else if (res === "tiene_porton" && r.tiene_porton) res = "medidas";
+    else if (res === "medidas" && r.medidas) res = "foto";
+    else if (res === "equipo" && d.equipo) res = "marca";
+    else if (res === "equipo_compra" && r.equipo_compra) res = ses.contacto.municipio ? "cerrar" : "municipio";
+    else break;
+  }
+  return res;
+}
+
+/** Alguien que ofrece algo (proveedor, publicidad): se le contesta una vez y no se avisa a los vendedores. */
+async function atenderProveedor(ses: Sesion) {
+  await enviar(ses, { tipo: "texto", texto: texto(ses.config, "proveedor") });
+  ses.contacto.origen = "proveedor";
+  await ses.db.from("contactos").update({ origen: "proveedor" }).eq("id", ses.contacto.id);
+  ses.estado.paso_actual = null;
+  ses.estado.flujo_actual = "proveedor";
 }
 
 // La zona se deduce del municipio y el material ya no se pregunta (la encuesta larga hacía que la abandonaran).
@@ -559,8 +626,21 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
       // Si en lugar de su nombre escribe lo que necesita, se guarda y se le vuelve a pedir el nombre.
       const crudo = textoLibre(e, 300) ?? "";
       // Se revisa sin el saludo ("Buenas tardes, me llamo Ana" es un nombre).
+      if (crudo && esProveedor(crudo)) {
+        await atenderProveedor(ses);
+        return "igual";
+      }
       if (crudo && (/[?¿]/.test(crudo) || pareceNoNombre(limpiarNombre(crudo) || crudo))) {
         const intencion = detectarIntencion(crudo);
+        // Ya dijo qué necesita: se empieza su encuesta sin insistir con el nombre (se pide al final).
+        if (intencion.flujo) {
+          anotarFuera(ses, e);
+          const r = await iniciarPorIntencion(ses, intencion, crudo);
+          if (r) {
+            await enviar(ses, { tipo: "texto", texto: texto(ses.config, "inicio_directo", { servicio: intencion.frase ?? "su solicitud" }) });
+            return r;
+          }
+        }
         ses.estado.datos.pendiente = { texto: crudo, intencion };
         anotarFuera(ses, e);
         await enviar(ses, {
@@ -630,20 +710,9 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
     case "municipio": {
       const m = textoLibre(e, 120);
       if (!m) return "invalido";
-      ses.contacto.municipio = m;
       // La zona ya no se pregunta: se deduce del municipio.
-      const zona = zonaDeMunicipio(m);
-      const cambios: { municipio: string; en_estado_de_mexico?: boolean } = { municipio: m };
-      if (zona === "edomex") cambios.en_estado_de_mexico = true;
-      if (zona === "fuera") {
-        cambios.en_estado_de_mexico = false;
-        ses.estado.datos.fuera_de_zona = true;
-        // En compra de equipo puede haber envío; en instalación se avisa que la cobertura es el Estado de México.
-        if (ses.estado.datos.flujo !== "compra") await enviar(ses, { tipo: "texto", texto: texto(ses.config, "fuera_de_zona") });
-      }
-      if (zona === "desconocida") r.zona = "Por confirmar";
-      ses.contacto.en_estado_de_mexico = cambios.en_estado_de_mexico ?? ses.contacto.en_estado_de_mexico;
-      await ses.db.from("contactos").update(cambios).eq("id", ses.contacto.id);
+      await guardarMunicipio(ses, m);
+      if (ses.estado.datos.soloPrecio) return "asesor";
       return ses.estado.datos.flujo === "compra" ? "cerrar" : pasoDeServicio(ses);
     }
     case "equipo_compra": {
@@ -658,15 +727,29 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
     }
     case "tipo_instalacion": {
       const o = elegir(e, opcionesInstalacion(ses.servicios));
-      if (!o) return "invalido";
-      ses.estado.datos.servicio = Number(o.id.replace("srv_", ""));
+      if (o) {
+        ses.estado.datos.servicio = Number(o.id.replace("srv_", ""));
+        return "tiene_porton";
+      }
+      // Lo escribió con sus palabras ("tipo americano", "el que abre hacia arriba", "corredizo con carril").
+      const libre = textoLibre(e, 200);
+      if (!libre || libre.length < 4) return "invalido";
+      const tipo = detectarIntencion(libre).tipoPorton;
+      if (tipo && ses.servicios.some((sv) => sv.codigo === tipo && sv.activo)) ses.estado.datos.servicio = tipo;
+      // Si no se reconoce el tipo, se guarda como lo describió para el vendedor y se sigue: no se le detiene.
+      else r.tipo_descrito = libre;
+      const porton = tienePortonDe(libre);
+      if (porton) r.tiene_porton = porton;
       return "tiene_porton";
     }
     case "tiene_porton": {
       const o = elegir(e, TIENE_PORTON);
       const v = o ? null : siNo(e);
-      if (!o && v === null) return "invalido";
-      r.tiene_porton = o ? o.titulo : v ? "Sí, ya lo tengo" : "Requiero fabricación";
+      const dicho = !o && v === null ? tienePortonDe(e.texto ?? "") : undefined;
+      if (!o && v === null && !dicho) return "invalido";
+      r.tiene_porton = o ? o.titulo : dicho ?? (v ? "Sí, ya lo tengo" : "Requiero fabricación");
+      const medidas = extraerMedidas(e.texto ?? "");
+      if (medidas) r.medidas = medidas;
       return "medidas";
     }
     case "medidas": {
@@ -694,8 +777,15 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
     }
     case "equipo": {
       const o = elegir(e, opcionesEquipos(ses.servicios));
-      if (!o) return "invalido";
-      ses.estado.datos.equipo = Number(o.id.replace("eq_", ""));
+      if (o) {
+        ses.estado.datos.equipo = Number(o.id.replace("eq_", ""));
+        return "marca";
+      }
+      const libre = textoLibre(e, 200);
+      if (!libre || libre.length < 4) return "invalido";
+      const tipo = detectarIntencion(libre).tipoPorton;
+      if (tipo) ses.estado.datos.equipo = tipo;
+      else r.tipo_descrito = libre;
       return "marca";
     }
     case "marca": {
@@ -726,6 +816,16 @@ async function procesarPaso(ses: Sesion, paso: Paso, e: Entrada): Promise<Result
       const o = elegir(e, HORARIOS);
       if (!o) return "invalido";
       r.horario_preferido = o.titulo;
+      return "cerrar";
+    }
+    case "nombre_final": {
+      // Se pide al final a quien empezó diciendo qué necesita. Puede omitirlo.
+      if (elegir(e, OMITIR) || /^(omitir|no|prefiero no)\b/.test(normal(e.texto ?? ""))) return "cerrar";
+      const nombre = limpiarNombre(textoLibre(e, 80) ?? "");
+      if (nombre && !/^\d+$/.test(nombre) && !pareceNoNombre(nombre)) {
+        ses.contacto.nombre = nombre.toLowerCase().replace(/(^|\s)\p{L}/gu, (m) => m.toUpperCase());
+        await ses.db.from("contactos").update({ nombre: ses.contacto.nombre }).eq("id", ses.contacto.id);
+      } else anotarFuera(ses, e);
       return "cerrar";
     }
   }
@@ -781,7 +881,8 @@ async function solicitudAbierta(ses: Sesion) {
 
 async function cerrarSolicitud(ses: Sesion) {
   const sol = await crearSolicitud(ses, true);
-  let cierre = texto(ses.config, "cierre", { nombre: ses.contacto.nombre, codigo: sol.codigo });
+  // Sin nombre (lo omitió): "Gracias, . Hemos…" → "Gracias. Hemos…"
+  let cierre = texto(ses.config, "cierre", { nombre: ses.contacto.nombre, codigo: sol.codigo }).replace(/,\s*\./, ".");
   if (sol.fuera_de_horario) cierre += "\n\n" + texto(ses.config, "fuera_de_horario");
   await enviar(ses, { tipo: "texto", texto: cierre });
   const servicio = ses.servicios.find((s) => s.codigo === sol.servicio_codigo);
@@ -800,6 +901,8 @@ async function cerrarSolicitud(ses: Sesion) {
   }
   ses.estado.paso_actual = null;
   ses.estado.en_manos_de_vendedor = true;
+  // Ya se le dijo que un asesor lo contactará: si escribe enseguida, no se le repite.
+  ses.estado.ultimo_aviso_vendedor = ses.ahora.toISOString();
   await avisarVendedores(ses, sol);
 }
 
@@ -811,7 +914,10 @@ async function pasarAAsesor(ses: Sesion, silencioso = false) {
     respuestas(ses).abandono_en = NOMBRE_PASO[ses.estado.paso_actual] ?? ses.estado.paso_actual;
   }
   const abierta = !ses.estado.datos.flujo ? await solicitudAbierta(ses) : null;
-  if (!silencioso) await enviar(ses, { tipo: "texto", texto: texto(ses.config, "traspaso_asesor") });
+  if (!silencioso) {
+    await enviar(ses, { tipo: "texto", texto: texto(ses.config, "traspaso_asesor") });
+    ses.estado.ultimo_aviso_vendedor = ses.ahora.toISOString();
+  }
   if (abierta) {
     ses.estado.solicitud_id = abierta.id;
     await reenviarAVendedores(ses, { texto: "El cliente pidió hablar con un asesor." }, abierta.codigo, abierta.vendedor_id);
@@ -835,19 +941,30 @@ async function atenderEnManosDeVendedor(ses: Sesion, e: Entrada, actividadPrevia
     ses.estado.en_manos_de_vendedor = false;
     return false;
   }
+  const { data: v } = sol.vendedor_id
+    ? await ses.db.from("usuarios_perfil").select("nombre, whatsapp").eq("id", sol.vendedor_id).maybeSingle()
+    : { data: null };
+  const escrito = e.texto?.trim() ?? "";
+  // "¿Me van a atender?", "?", "no me contestan": se marca urgente y así les llega a los vendedores.
+  const impaciente = !!escrito && esImpaciencia(escrito);
   const ultimoAviso = ses.estado.ultimo_aviso_vendedor ? new Date(ses.estado.ultimo_aviso_vendedor) : null;
-  if (!ultimoAviso || ses.ahora.getTime() - ultimoAviso.getTime() > 4 * 3600000) {
-    let aviso = texto(ses.config, "en_espera");
-    if (sol.vendedor_id) {
-      const { data: v } = await ses.db.from("usuarios_perfil").select("nombre, whatsapp").eq("id", sol.vendedor_id).maybeSingle();
-      if (v?.whatsapp) {
-        aviso = texto(ses.config, "asesor_asignado", { vendedor: v.nombre, telefono_vendedor: v.whatsapp });
-      }
-    }
+  if ((!ultimoAviso || ses.ahora.getTime() - ultimoAviso.getTime() > 4 * 3600000) && !esCortesia(escrito)) {
+    const aviso = v?.whatsapp
+      ? texto(ses.config, "asesor_asignado", { vendedor: v.nombre, telefono_vendedor: v.whatsapp })
+      : texto(ses.config, "en_espera");
     await enviar(ses, { tipo: "texto", texto: aviso });
     ses.estado.ultimo_aviso_vendedor = ses.ahora.toISOString();
+    ses.estado.datos.ultimo_eco = ses.ahora.toISOString();
+  } else if (escrito && !esCortesia(escrito)) {
+    // Nunca dejarlo sin respuesta: "ya le avisé de nuevo" (una vez cada 10 minutos, o siempre si se impacienta).
+    const ultimoEco = ses.estado.datos.ultimo_eco ? new Date(ses.estado.datos.ultimo_eco) : null;
+    if (impaciente || !ultimoEco || ses.ahora.getTime() - ultimoEco.getTime() > 10 * 60000) {
+      await enviar(ses, { tipo: "texto", texto: texto(ses.config, "eco_asesor", { asesor: v?.nombre ?? "nuestros asesores" }) });
+      ses.estado.datos.ultimo_eco = ses.ahora.toISOString();
+    }
   }
-  await reenviarAVendedores(ses, e, sol.codigo, sol.vendedor_id);
+  if (impaciente && ses.estado.solicitud_id) await ses.db.from("solicitudes").update({ urgente: true }).eq("id", ses.estado.solicitud_id);
+  await reenviarAVendedores(ses, impaciente ? { ...e, texto: `URGENTE, sigue esperando respuesta: ${escrito}` } : e, sol.codigo, sol.vendedor_id);
   return true;
 }
 
@@ -954,6 +1071,8 @@ export async function procesarMensajeCliente(o: OpcionesProceso): Promise<boolea
 }
 
 async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
+  // Proveedores y publicidad: el mensaje queda guardado, pero el bot no sigue ni avisa a los vendedores.
+  if (ses.contacto.origen === "proveedor") return;
   if (ses.estado.en_manos_de_vendedor) {
     if (await atenderEnManosDeVendedor(ses, e, actividadPrevia)) return;
   }
@@ -990,13 +1109,39 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
       ses.estado.solicitud_id = ultima?.id ?? null;
       await irA(ses, "regreso");
     } else {
-      // Si el primer mensaje ya dice qué necesita, se recuerda para ir directo a esa encuesta al tener el nombre.
       const primero = textoLibre(e, 300);
+      if (primero && esProveedor(primero)) return atenderProveedor(ses);
+      // Si el primer mensaje ya dice qué necesita ("cuánto un motor para mi zaguán de 3x2.40"), se empieza
+      // directo su encuesta, sin bienvenida ni nombre (el nombre se pide al final) y sin repetir lo que ya dijo.
       const intencion = primero ? detectarIntencion(primero) : {};
-      if (primero && intencion.flujo) ses.estado.datos.pendiente = { texto: primero, intencion };
+      if (primero && intencion.flujo) {
+        const res = await iniciarPorIntencion(ses, intencion, primero);
+        if (res && res !== "invalido" && res !== "igual") {
+          await enviar(ses, { tipo: "texto", texto: texto(ses.config, "inicio_directo", { servicio: intencion.frase ?? "su solicitud" }) });
+          await continuar(ses, res, null);
+          return;
+        }
+      }
       await enviarBienvenida(ses);
       await irA(ses, "nombre");
     }
+    return;
+  }
+
+  // "Solo quiero saber el precio", "son muchas preguntas": sin más preguntas; solo el municipio si falta.
+  const escrito = e.texto?.trim();
+  if (escrito && paso !== "nombre_final" && soloQuierePrecio(escrito)) {
+    anotarFuera(ses, e);
+    respuestas(ses).pedido_cliente ??= escrito.slice(0, 300);
+    if (!ses.contacto.municipio) {
+      ses.estado.datos.soloPrecio = true;
+      ses.estado.paso_actual = "municipio";
+      ses.estado.intentos_fallidos = 0;
+      await enviar(ses, { tipo: "texto", texto: texto(ses.config, "solo_precio_municipio") });
+      return;
+    }
+    await enviar(ses, { tipo: "texto", texto: texto(ses.config, "solo_precio") });
+    await pasarAAsesor(ses, true);
     return;
   }
 
@@ -1020,14 +1165,27 @@ async function avanzar(ses: Sesion, e: Entrada, actividadPrevia: Date) {
     await enviar(ses, await avisoYContador(ses, paso, preguntaDe(ses, paso)));
     return;
   }
+  await continuar(ses, res, paso);
+}
+
+/** Lo que sigue después de una respuesta: asesor, cerrar (antes, el nombre si falta) o la siguiente pregunta sin respuesta. */
+async function continuar(ses: Sesion, resultado: Resultado, pasoAnterior: Paso | null) {
+  const res = saltarRespondidas(ses, resultado);
   if (res === "asesor") {
     await pasarAAsesor(ses);
     return;
   }
   if (res === "cerrar") {
+    // Quien empezó diciendo qué necesita no dio su nombre: se le pide al final, y puede omitirlo.
+    if (!ses.contacto.nombre && pasoAnterior !== "nombre_final" && ses.estado.datos.flujo) {
+      ses.estado.datos.encuesta?.pasos.push("nombre_final");
+      await irA(ses, "nombre_final");
+      return;
+    }
     await cerrarSolicitud(ses);
     return;
   }
+  if (res === "invalido" || res === "igual") return;
   await irA(ses, res);
 }
 

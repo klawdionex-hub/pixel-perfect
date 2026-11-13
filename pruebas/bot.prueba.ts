@@ -743,12 +743,14 @@ const estadoDe = (tel: string) => tablas["estado_conversacion"]!.find((x) => x.c
 const R1 = "+525590000011";
 await cliente(R1, "¡Hola! Quiero más información.");
 await cliente(R1, "Cuánto me salen los motores tipo pistón que habrán la puerta de dos hojas hacia adentro");
-afirmar(!tablas["contactos"]!.find((c) => c.telefono === R1)!.nombre && log.at(-1)!.includes("los pistones para su portón") && log.at(-1)!.includes("*nombre*"), "la pregunta no se guarda como nombre y se vuelve a pedir el nombre");
-await cliente(R1, "Pedro Ramírez");
 const e1 = estadoDe(R1);
-afirmar(tablas["contactos"]!.find((c) => c.telefono === R1)!.nombre === "Pedro Ramírez", "luego guarda el nombre real");
+afirmar(!tablas["contactos"]!.find((c) => c.telefono === R1)!.nombre && log.slice(-3).some((l) => l.includes("Con gusto le ayudo con los pistones para su portón")), "la pregunta no se guarda como nombre y no se insiste con el nombre");
 afirmar(e1.paso_actual === "municipio" && (e1.datos as { servicio?: number }).servicio === 2 && log.at(-1)!.includes("Pregunta 1 de 5"), "va directo a instalación, abatible hacia adentro, sin la pregunta del tipo");
 afirmar((e1.datos as { respuestas?: { pedido_cliente?: string } }).respuestas?.pedido_cliente?.includes("pistón"), "guarda lo que escribió para el vendedor");
+for (const t of ["Texcoco", "Sí, ya lo tengo", "3 x 2", "omitir", "Por la tarde"]) await cliente(R1, t);
+afirmar(estadoDe(R1).paso_actual === "nombre_final" && log.at(-1)!.includes("a nombre de quién"), "el nombre se pide al final");
+await cliente(R1, "Pedro Ramírez");
+afirmar(tablas["contactos"]!.find((c) => c.telefono === R1)!.nombre === "Pedro Ramírez" && solDe(R1)?.completa === true, "guarda el nombre y cierra la solicitud");
 // En el menú escribe en lugar de tocar
 const R2 = "+525590000012";
 await cliente(R2, "Hola");
@@ -767,9 +769,87 @@ await cliente(R3, "quiero cotizar un portón elevadizo");
 afirmar((estadoDe(R3).datos as { servicio?: number }).servicio === 3 && estadoDe(R3).paso_actual === "municipio", "texto libre en el menú: instalación de elevadizo");
 // El primer mensaje ya dice lo que quiere
 const R4 = "+525590000014";
+marca = log.length;
 await cliente(R4, "Buenas, ¿cuánto cuesta un portón corredizo automático?");
-await cliente(R4, "Mario");
-afirmar((estadoDe(R4).datos as { servicio?: number }).servicio === 4 && estadoDe(R4).paso_actual === "municipio", "si el primer mensaje dice qué quiere, al dar el nombre va directo");
+afirmar((estadoDe(R4).datos as { servicio?: number }).servicio === 4 && estadoDe(R4).paso_actual === "municipio" && !log.slice(marca).some((l) => l.includes("[Imagen]") || l.includes("*nombre*")), "si el primer mensaje dice qué quiere, va directo: sin bienvenida ni nombre");
+
+// --- Lo que el cliente ya dijo en su primer mensaje no se le vuelve a preguntar
+{
+  const A1 = "+525590000081";
+  await cliente(A1, "¡Hola! Quiero más información. Qué precio tiene la instalación en un zaguán de 3.80x2.40, vivo en Acolman");
+  const d = estadoDe(A1).datos as { respuestas?: { medidas?: string }; encuesta?: { pasos: string[] } };
+  const contacto = tablas["contactos"]!.find((c) => c.telefono === A1)!;
+  afirmar(d.respuestas?.medidas === "3.80 x 2.40" && contacto.municipio === "Acolman" && estadoDe(A1).paso_actual === "tipo_instalacion", "toma las medidas y el municipio del primer mensaje y pregunta lo que falta");
+  afirmar(!d.encuesta?.pasos.includes("medidas") && !d.encuesta?.pasos.includes("municipio"), "esas preguntas ya no cuentan en el total");
+  await cliente(A1, "TIPO A MERICANO");
+  afirmar((estadoDe(A1).datos as { servicio?: number }).servicio === 3 && estadoDe(A1).paso_actual === "tiene_porton", "entiende «tipo a mericano» como elevadizo");
+  await cliente(A1, "ya está instalado, es de herrería");
+  afirmar(estadoDe(A1).paso_actual === "foto", "«ya está instalado» cuenta como que ya tiene portón y salta las medidas que ya dio");
+  const A2 = "+525590000082";
+  await cliente(A2, "Hola");
+  await cliente(A2, "Gaby");
+  await cliente(A2, "Cotizar instalación", "m_inst");
+  await cliente(A2, "Texcoco");
+  await cliente(A2, "Puertas altas y anchas para entrada de camiones");
+  afirmar(estadoDe(A2).paso_actual === "tiene_porton" && (estadoDe(A2).datos as { respuestas?: { tipo_descrito?: string } }).respuestas?.tipo_descrito?.includes("camiones") === true, "un tipo que no se reconoce se guarda como lo describió y sigue");
+}
+
+// --- "Solo quiero el precio": sin más preguntas
+{
+  const P1 = "+525590000031";
+  await cliente(P1, "Hola");
+  await cliente(P1, "Raúl");
+  await cliente(P1, "Cotizar instalación", "m_inst");
+  marca = log.length;
+  await cliente(P1, "Solo quiero saber costos, hacen muchas preguntas");
+  afirmar(log.at(-1)!.includes("Solo dígame en qué municipio") && estadoDe(P1).paso_actual === "municipio", "si falta el municipio, solo pide eso");
+  await cliente(P1, "Chalco");
+  afirmar(estadoDe(P1).en_manos_de_vendedor === true && solDe(P1)?.completa === false && log.some((l) => l.startsWith("VENDEDOR") && l.includes(String(solDe(P1)?.codigo ?? "??"))), "y pasa directo con los vendedores");
+  const P2 = "+525590000032";
+  await cliente(P2, "Hola");
+  await cliente(P2, "Laura");
+  await cliente(P2, "Cotizar instalación", "m_inst");
+  await cliente(P2, "Texcoco");
+  await cliente(P2, "nada más el precio por favor");
+  afirmar(estadoDe(P2).en_manos_de_vendedor === true && log.some((l) => l.includes("sin más preguntas") && l.includes("Le paso con un asesor")), "con el municipio ya dado, pasa de inmediato");
+}
+
+// --- Después de pasar con el asesor nunca se queda en silencio
+{
+  const S1 = "+525590000041";
+  await cliente(S1, "Hola");
+  await cliente(S1, "Héctor");
+  await cliente(S1, "Hablar con un asesor", "m_ases");
+  const quedaron = log.length;
+  await cliente(S1, "Gracias");
+  afirmar(!log.slice(quedaron).some((l) => l.startsWith("BOT>")), "a un «gracias» no se le contesta");
+  reloj.ahora = new Date(reloj.ahora.getTime() + 15 * 60000);
+  marca = log.length;
+  await cliente(S1, "Necesito programar un control");
+  afirmar(log.slice(marca).some((l) => l.startsWith("BOT>") && l.includes("Ya le avisé de nuevo")), "un mensaje nuevo recibe «ya le avisé de nuevo a su asesor»");
+  marca = log.length;
+  await cliente(S1, "Me van a atender o no?");
+  afirmar(solDe(S1)?.urgente === true && log.slice(marca).some((l) => l.startsWith("BOT>") && l.includes("Ya le avisé")) && log.slice(marca).some((l) => l.startsWith("VENDEDOR") && l.includes("URGENTE")), "si se impacienta: se le contesta, se marca urgente y les llega así a los vendedores");
+}
+
+// --- Proveedores y publicidad no llegan a los vendedores
+{
+  const V1 = "+525590000051";
+  marca = log.length;
+  await cliente(V1, "Buenas tardes, soy ejecutivo comercial de Mercado Pago y me gustaría presentarle una propuesta para su negocio");
+  afirmar(log.slice(marca).some((l) => l.startsWith("BOT>") && l.includes("atención a clientes")) && !log.slice(marca).some((l) => l.startsWith("VENDEDOR")) && !solDe(V1), "se le contesta una vez, sin prospecto ni aviso a vendedores");
+  marca = log.length;
+  await cliente(V1, "Quedo a la orden");
+  afirmar(!log.slice(marca).some((l) => l.startsWith("BOT>") || l.startsWith("VENDEDOR")), "sus siguientes mensajes ya no mueven al bot");
+}
+
+// --- Respuestas cortas no son nombres
+{
+  const N1 = "+525590000061";
+  await cliente(N1, "Hola");
+  await cliente(N1, "No");
+  afirmar(!tablas["contactos"]!.find((c) => c.telefono === N1)!.nombre && estadoDe(N1).paso_actual === "nombre", "«No» no se guarda como nombre");
+}
 // Un nombre normal largo se sigue tomando como nombre
 const R5 = "+525590000015";
 await cliente(R5, "Hola");
